@@ -44,13 +44,34 @@ keys_list['profiles_1d'] = [
     'core_profiles.profiles_1d[].ion[0].temperature_fit.measured',
     'core_profiles.profiles_1d[].ion[0].temperature_fit.measured_error_upper',
     'core_profiles.profiles_1d[].ion[0].density',
+    'core_profiles.profiles_1d[].ion[0].density_fit.measured',
+    'core_profiles.profiles_1d[].ion[0].density_fit.measured_error_upper',
     'core_profiles.profiles_1d[].ion[1].temperature',
     'core_profiles.profiles_1d[].ion[1].temperature_fit.measured',
     'core_profiles.profiles_1d[].ion[1].temperature_fit.measured_error_upper',
     'core_profiles.profiles_1d[].ion[1].density',
     'core_profiles.profiles_1d[].ion[1].density_fit.measured',
     'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper',
-    'core_profiles.profiles_1d[].t_i_average', 
+    'core_profiles.profiles_1d[].ion[2].temperature',
+    'core_profiles.profiles_1d[].ion[2].temperature_fit.measured',
+    'core_profiles.profiles_1d[].ion[2].temperature_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[2].density',
+    'core_profiles.profiles_1d[].ion[2].density_fit.measured',
+    'core_profiles.profiles_1d[].ion[2].density_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[3].temperature',
+    'core_profiles.profiles_1d[].ion[3].temperature_fit.measured',
+    'core_profiles.profiles_1d[].ion[3].temperature_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[3].density',
+    'core_profiles.profiles_1d[].ion[3].density_fit.measured',
+    'core_profiles.profiles_1d[].ion[3].density_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[4].temperature',
+    'core_profiles.profiles_1d[].ion[4].temperature_fit.measured',
+    'core_profiles.profiles_1d[].ion[4].temperature_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[4].density',
+    'core_profiles.profiles_1d[].ion[4].density_fit.measured',
+    'core_profiles.profiles_1d[].ion[4].density_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].t_i_average',
+    'core_profiles.profiles_1d[].rotation_frequency_tor_sonic',
     'core_profiles.profiles_1d[].zeff',
     'core_profiles.profiles_1d[].grid.rho_tor_norm',
     'equilibrium.time_slice[].profiles_1d.psi',
@@ -93,6 +114,13 @@ keys_list['time_trace'] = [
     'summary.global_quantities.beta_tor.value', 
     'summary.global_quantities.power_radiated.value', 
     'summary.fusion.neutron_fluxes.total.value',
+    'summary.fusion.neutron_fluxes.thermal.value',
+    'summary.fusion.neutron_rates.total.value',
+    'summary.fusion.neutron_rates.thermal.value',
+    'summary.fusion.neutron_rates.dd.total.value',
+    'summary.fusion.neutron_rates.dd.thermal.value',
+    'summary.fusion.neutron_rates.dt.total.value',
+    'summary.fusion.neutron_rates.dt.thermal.value',
     'equilibrium.time_slice[].global_quantities.ip', 
     'equilibrium.time_slice[].global_quantities.li_3', 
     'equilibrium.time_slice[].global_quantities.beta_pol', 
@@ -334,6 +362,9 @@ def get_onesig(ids,signame,time_begin,time_end=None,sid=None,tid=None):
         if idsname == 'core_profiles' and signame == 'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper':
             xstring = 'ids.profiles_1d[tt].ion[1].density_fit.rho_tor_norm'
 
+        if xstring == 'none':
+            raise IOError('Signal %s not present in IDS.' % (signame))
+
         # Define x vector (could be time or radius)
         if xstring == 'ids.time[tt]':
             xvec = np.array([tvec[tt]]).flatten()
@@ -555,6 +586,7 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
+            plt.close(fig)
 
 def plot_interpolated_traces(interpolated_data, plot_vars=None):
     signal_list = interpolated_data["time_signals"] if "time_signals" in interpolated_data else keys_list['time_trace']
@@ -575,6 +607,7 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
+            plt.close(fig)
 
 def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
     signal_list = plot_data["profile_signals"] if "profile_signals" in plot_data else keys_list['profiles_1d']
@@ -768,7 +801,7 @@ def print_time_traces(data_dict, data_vars=None, inverted_layout=False):
                         out_dict[run][signame] = val
         else:
             for run in data_dict:
-                if signame in data_dict and len(data_dict[run][signame]) > 0:
+                if isinstance(data_dict[run], dict) and signame in data_dict[run] and len(data_dict[run][signame]) > 0:
                     if run not in out_dict:
                         out_dict[run] = {}
                     val = np.mean(data_dict[run][signame])
@@ -940,7 +973,7 @@ def standardize_basis_vectors(raw_dict, ref_tag, time_basis=None):
                     ytable_new = None
                     for ii in range(len(t_new)):
                         ytable_new = np.vstack((ytable_new, ytable)) if ytable_new is not None else np.atleast_2d(ytable)
-                    ref_dict[key][reference_tag] = copy.deepcopy(ytable_new)
+                    ref_dict[key][ref_tag] = copy.deepcopy(ytable_new)
 
     # Loop over all runs in order to maintain run[0] for analysis purposes
     std_dict = {}
@@ -1298,6 +1331,8 @@ def compare_runs(signals, dblist, shotlist, runlist, time_begin, time_end=None, 
             plot_gif_profiles(data_dict, single_time_reference=steady_state)
 
     time_averages = print_time_traces(data_dict, inverted_layout=standardize)
+    time_error_averages = {}
+    profile_error_averages = {}
 
     if analyze:
 
@@ -1324,7 +1359,7 @@ def main():
 
     args = input()
     do_plot = not args.calc_only
-    compare_runs(
+    time_averages, time_error_averages, profiles_error_averages = compare_runs(
         signals=args.signal,
         dblist=args.database,
         shotlist=args.shot,
