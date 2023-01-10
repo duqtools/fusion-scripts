@@ -14,6 +14,9 @@ import argparse
 
 import imas
 
+##### CONFIGURATION LISTS
+# Feel free to add more options here as they are needed.
+
 allowed_ids_list = [
     'summary',
     'equilibrium',
@@ -147,7 +150,6 @@ keys_list['errors']['profiles_1d'] = [
     'average_absolute_error'
 ]
 
-# Add more here as they are needed.
 operations = [
     '*2',
     '/2',
@@ -156,6 +158,8 @@ operations = [
     '*',
     '/'
 ]
+
+##### FUNCTIONS
 
 def expand_error_keys(category=None):
     error_keys = []
@@ -172,24 +176,21 @@ def input():
 """Compare validation metrics from HFPS input / output IDSs. Preliminary version, adapted from scripts from D. Yadykin and M. Marin.\n
 ---
 Examples:\n
-python compare_im_runs.py -u g2aho -d jet -s 94875 -r 1 102 --time_begin 48 --time_end 49 --steady_state -sig 'core_profiles.profiles_1d[].q' 'summary.global_quantities.li.value'\n
+python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time_begin 48 --time_end 49 --steady_state -sig 'core_profiles.profiles_1d[].q' 'summary.global_quantities.li.value'\n
 ---
 """, 
     epilog="", 
     formatter_class=argparse.RawTextHelpFormatter)
 
     parser.add_argument("--backend",  "-b",              type=str,   default="mdsplus", choices=["mdsplus", "hdf5"], help="Backend with which to access data")
-    parser.add_argument("--database", "-d",   nargs='+', type=str,   default=None,                                   help="Database/machine name(s) in which the data is stored")
-    parser.add_argument("--shot",     "-s",   nargs='+', type=int,   default=None,                                   help="Shot number(s) in which the data is stored")
-    parser.add_argument("--run",      "-r",   nargs='+', type=int,   default=None,                                   help="Run number(s) in which the data is stored")
-    parser.add_argument("--user",     "-u",   nargs='*', type=str,   default=[os.getenv("USER")],                    help="Username(s) with the data in his/her imasdb")
+    parser.add_argument("--ids",      "-i",   nargs='+', type=str,   default=None,                                   help="IDS identifiers in which data is stored")
     parser.add_argument("--version",  "-v",              type=str,   default="3",                                    help="UAL version")
     parser.add_argument("--time_begin",                  type=float, default=None,                                   help="Slice shot file beginning at time (s)")
     parser.add_argument("--time_end",                    type=float, default=None,                                   help="Slice shot file ending at time (s)")
     parser.add_argument("--time_out",         nargs='*', type=float, default=None,                                   help="Slice output interpolated to times (s), automatically toggles uniform")
     parser.add_argument("--signal",   "-sig", nargs='+', type=str,   default=None,                                   help="Full IDS signal names to be compared")
-    parser.add_argument("--source",           nargs='*', type=str,   default=['total'],                              help="sourceid to be plotted(nbi, ec,etc as given in dd description), make sence if core_source is given as target ids, default is total")
-    parser.add_argument("--transport",        nargs='*', type=str,   default=['transport_solver'],                   help="transpid to be plotted(neoclassical, anomalous, ets, cherck dd for more entires), make sence if core_transport is given as target ids, default is transport_solver")
+#    parser.add_argument("--source",           nargs='*', type=str,   default=['total'],                              help="sourceid to be plotted(nbi, ec,etc as given in dd description), make sence if core_source is given as target ids, default is total")
+#    parser.add_argument("--transport",        nargs='*', type=str,   default=['transport_solver'],                   help="transpid to be plotted(neoclassical, anomalous, ets, cherck dd for more entires), make sence if core_transport is given as target ids, default is transport_solver")
     parser.add_argument("--steady_state",                            default=False, action='store_true',             help="Flag to identify that the input is a single point")
     parser.add_argument("--save_plot",                               default=False, action='store_true',             help="Toggle saving of plot into default file names")
     parser.add_argument("--uniform",                                 default=False, action='store_true',             help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
@@ -205,10 +206,10 @@ python compare_im_runs.py -u g2aho -d jet -s 94875 -r 1 102 --time_begin 48 --ti
     return args
 
 
-def getShotFile(ids_name,shot,runid,user,database,backend=imas.imasdef.MDSPLUS_BACKEND):
-    print('to be opened',user,database,shot,runid)
+def getShotFile(ids_name, shot, runid, user, database, backend=imas.imasdef.MDSPLUS_BACKEND):
+    print('to be opened', user, database, shot, runid)
     data = None
-    ids = imas.DBEntry(backend, database, shot, runid, user)
+    ids = imas.DBEntry(backend, database, shot, runid, user_name=user)
     ids.open()
     if ids_name in allowed_ids_list:
 #        data = ids.get_slice(ids_name, time, imas.imasdef.CLOSEST_SAMPLE, occurrence=0)
@@ -225,24 +226,24 @@ def extend_list(inlist, nmax, default=None):
     return outlist
 
 def get_sourceid(ids, sid):
-    nsour=len(ids.source)
-    nosid=True
+    nsour = len(ids.source)
+    nosid = True
     for isour in range(nsour):
-        if ids.source[isour].identifier.name==sid:
-            sourceid=isour
-            nosid=False
+        if ids.source[isour].identifier.name == sid:
+            sourceid = isour
+            nosid = False
             break
     if nosid:
         raise IOError('no sid with name %s found, check ids used' % (sid))
     return sourceid
 
 def get_transpid(ids, tid):
-    nmod=len(ids.model)
-    notid=True
+    nmod = len(ids.model)
+    notid = True
     for imod in range(nmod):
-        if ids.model[imod].identifier.name==tid:
-            transpid=imod
-            notid=False
+        if ids.model[imod].identifier.name == tid:
+            transpid = imod
+            notid = False
             break
     if notid:
         raise IOError('no tid with name %s found, check ids used' % (tid))
@@ -254,7 +255,7 @@ def fit_and_substitute(x_old, x_new, y_old):
     y_new[y_new > 1.0e25] = 0.0    # This is just in case
     return y_new
 
-def get_onesig(ids,signame,time_begin,time_end=None,sid=None,tid=None):
+def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
     data_dict = {}
     sigcomp = signame.split('.')
     # IDS name must be the first part of the signal name
@@ -301,7 +302,7 @@ def get_onesig(ids,signame,time_begin,time_end=None,sid=None,tid=None):
                             tstr = 'profiles_1d[tt]'
                         elif mm.group(1) == 'source':
                             sid_ind = get_sourceid(ids, sid)
-#                            print('sourceid',sid,sid_ind)
+#                            print('sourceid', sid, sid_ind)
                             tstr = 'source[sid_ind]'
                         elif mm.group(1) == 'ion':
                             tstr = 'ion[0]'
@@ -309,7 +310,7 @@ def get_onesig(ids,signame,time_begin,time_end=None,sid=None,tid=None):
                             tstr = 'profiles_2d[0]'
                         else:
                             tid_ind = get_transpid(ids,tid)
-#                            print('transpid',tid,tid_ind)
+#                            print('transpid', tid, tid_ind)
                     sigcomp[ii] = tstr
                 ystring = 'ids.' + '.'.join(sigcomp[1:])
                 datatype = key
@@ -393,9 +394,11 @@ def get_onesig(ids,signame,time_begin,time_end=None,sid=None,tid=None):
 
     return data_dict
 
-def get_onedict(sigvec,user,db,shot,runid,time_begin,time_end=None,sid=None,tid=None,interpolate=False):
+def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=None, tid=None, interpolate=False):
+
     out_data_dict = {}
     ids_dict = {}
+
     # Split signals based on which IDS they come from, allows efficient IDS reading
     for sig in sigvec:
         sigcomp = sig.split('.')
@@ -403,13 +406,14 @@ def get_onedict(sigvec,user,db,shot,runid,time_begin,time_end=None,sid=None,tid=
             ids_dict[sigcomp[0]] = [sig]
         else:
             ids_dict[sigcomp[0]].append(sig)
+
     t_fields = []
     xt_fields = []
     # Loop over IDSs, extracted all requested signals from each
     for idsname, siglist in ids_dict.items():
-        ids=getShotFile(idsname,shot,runid,user,db)
+        ids = getShotFile(idsname, shot, runid, user, db)
         for signame in siglist:
-            raw_data_dict = get_onesig(ids,signame,time_begin,time_end,sid,tid)
+            raw_data_dict = get_onesig(ids, signame, time_begin, time_end, sid, tid)
             ytable = None
             new_x = None
             new_t = np.array([])
@@ -439,114 +443,12 @@ def get_onedict(sigvec,user,db,shot,runid,time_begin,time_end=None,sid=None,tid=
             else:
                 out_data_dict[signame+".x"] = new_x
                 xt_fields.append(signame)
+
     if out_data_dict:
         out_data_dict["time_signals"] = t_fields
         out_data_dict["profile_signals"] = xt_fields
+
     return out_data_dict
-
-def standardize_manydict(runvec,sigvec,time_begin,time_end=None,time_vector=None,set_reference=None):
-    out_dict = {}
-    temp_run_dict = {}
-    reference_tag = None
-    first_tag = None
-    # Loop over runs to extract data, set first run as the reference run for time and radial vectors
-    for run in runvec:
-        user = run[0]
-        db = run[1]
-        shot = run[2]
-        runid = run[3]
-        tag = "%s/%s/%d/%d" % (user, db, shot, runid)
-        # Adding this line to allow for the flipping of all variables when it's not the first run. Might be necessary for the q profile
-        if not first_tag:
-            first_tag = tag
-
-        temp_run_dict[tag] = get_onedict(sigvec,user,db,shot,runid,time_begin,time_end,interpolate=True)
-
-        if reference_tag is None:
-            reference_tag = tag
-    # If another run is required to be the reference, then set that to be the reference if it is present
-    if set_reference is not None and set_reference in temp_run_dict:
-        reference_tag = set_reference
-    ref_dict = {}   # Container for reference run
-    # Transform reference data into the required field names and store in reference container
-    for key in temp_run_dict[reference_tag]:
-        if not key.endswith(".x") and not key.endswith(".t"):
-            if key not in ref_dict:
-                ref_dict[key] = {}
-            if time_vector is None:
-                ref_dict[key][reference_tag] = copy.deepcopy(temp_run_dict[reference_tag][key])
-                if key+".x" in temp_run_dict[reference_tag]:
-                    ref_dict[key+".x"] = copy.deepcopy(temp_run_dict[reference_tag][key+".x"])
-                #if key+".t" in run_dict:
-                ref_dict[key+".t"] = copy.deepcopy(temp_run_dict[reference_tag][key+".t"])
-            else:
-                # User-defined time vector takes priority over the time vector inside the user-defined reference run
-                ytable = np.atleast_2d(temp_run_dict[reference_tag][key])
-                # Radial interpolation will take place in the next loop
-                if key+".x" in temp_run_dict[reference_tag]:
-                    ref_dict[key+".x"] = copy.deepcopy(temp_run_dict[reference_tag][key+".x"])
-                ref_dict[key+".t"] = copy.deepcopy(time_vector)
-                # Perform time vector interpolation, always present
-                t_new = ref_dict[key+".t"]
-                if len(temp_run_dict[reference_tag][key+".t"]) > 1:
-                    ytable_new = None
-                    for ii in range(ytable.shape[1]):
-                        y_new = fit_and_substitute(temp_run_dict[reference_tag][key+".t"], t_new, ytable[:, ii])
-                        ytable_new = np.vstack((ytable_new, y_new)) if ytable_new is not None else np.atleast_2d(y_new)
-                    ref_dict[key][reference_tag] = ytable_new.T
-                else:
-                    if key+".x" in ref_dict:
-                        # Copies existing time slice multiple times if only one time slice is present in the run
-                        ytable_new = None
-                        for ii in range(len(t_new)):
-                            ytable_new = np.vstack((ytable_new, ytable)) if ytable_new is not None else np.atleast_2d(ytable)
-                    ref_dict[key][reference_tag] = copy.deepcopy(ytable_new)
-    # Loop over all runs in order to maintain run[0] for analysis purposes
-    for tag, run_dict in temp_run_dict.items():
-        # tag contains the id of the run, key the variable to be plotted
-        if tag == reference_tag:
-            for key in ref_dict:
-                if not key.endswith(".x") and not key.endswith(".t"):
-                    if key not in out_dict:
-                        out_dict[key] = {}
-                    out_dict[key][tag] = ref_dict[key][tag]
-                else:
-                    out_dict[key] = ref_dict[key]
-        else:
-            for key in run_dict:
-                if not key.endswith(".x") and not key.endswith(".t"):
-                    if key not in out_dict:
-                        out_dict[key] = {}
-                    ytable = np.atleast_2d(run_dict[key])
-                    ytable_temp = None
-                    # Perform radial vector interpolation, if radial vector is present in signal
-                    if key+".x" in ref_dict:
-                        x_new = ref_dict[key+".x"]
-                        for ii in range(ytable.shape[0]):
-                            y_new = fit_and_substitute(run_dict[key+".x"], x_new, ytable[ii, :])
-                            ytable_temp = np.vstack((ytable_temp, y_new)) if ytable_temp is not None else np.atleast_2d(y_new)
-                    else:
-                        ytable_temp = np.atleast_2d(ytable)
-                    # Perform time vector interpolation, always present
-                    t_new = ref_dict[key+".t"]
-                    ytable_new = None
-                    if len(run_dict[key+".t"]) > 1:
-                        if key+".x" in ref_dict:
-                            for ii in range(ytable_temp.shape[1]):
-                                y_new = fit_and_substitute(run_dict[key+".t"], t_new, ytable_temp[:, ii])
-                                ytable_new = np.vstack((ytable_new, y_new)) if ytable_new is not None else np.atleast_2d(y_new)
-                        else:
-                            ytable_new = fit_and_substitute(run_dict[key+".t"], t_new, ytable_temp[0])
-
-                        if ytable_new is not None:
-                            ytable_new = ytable_new.T
-                    else:
-                        if key+".x" in run_dict:
-                            # Copies existing time slice multiple times if only one time slice is present in the run
-                            for ii in range(len(t_new)):
-                                ytable_new = np.vstack((ytable_new, ytable_temp)) if ytable_new is not None else np.atleast_2d(ytable_temp)
-                    out_dict[key][tag] = copy.deepcopy(ytable_new)
-    return out_dict
 
 def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
     signal_list = plot_data["time_signals"] if "time_signals" in plot_data else keys_list['time_trace']
@@ -705,7 +607,7 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
 
             anim_created = FuncAnimation(Figure, AnimationFunction, frames=len(tvec), interval=200)
             #ylabel = ylabel.replace(' ', '_')
-            #f = r'/afs/eufus.eu/user/g/g2mmarin/imas_scripts/animation' + ylabel + '.gif'
+            #f = r'animation_' + ylabel + r'.gif'
             #anim_created.save(f, writer='writergif')
 
             # displaying the video
@@ -770,7 +672,7 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
 
             anim_created = FuncAnimation(Figure, AnimationFunction, frames=len(interpolated_data[signame+".t"]), interval=200)
             #ylabel = ylabel.replace(' ', '_')
-            #f = r'/afs/eufus.eu/user/g/g2mmarin/imas_scripts/animation' + ylabel + '.gif'
+            #f = r'animation_' + ylabel + r'.gif'
             #anim_created.save(f, writer='writergif')
 
             # displaying the video
@@ -1126,38 +1028,10 @@ def compute_user_string_functions(data_dict, signal_operations, standardized=Fal
 
     return data_dict
 
-def generate_metadata_table(dblist, shotlist, runlist, userlist, sourcelist=None, transportlist=None):
+def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None):
 
-    mlist = dblist if isinstance(dblist, (list, tuple)) else []
-    plist = shotlist if isinstance(shotlist, (list, tuple)) else []
-    rlist = runlist if isinstance(runlist, (list, tuple)) else []
-    ulist = userlist if isinstance(userlist, (list, tuple)) else []
-    slist = sourcelist if isinstance(sourcelist, (list, tuple)) else []
-    tlist = transportlist if isinstance(transportlist, (list, tuple)) else []
-
-    n_m = len(mlist)
-    n_p = len(plist)
-    n_r = len(rlist)
-    n_u = len(ulist)
-    n_s = len(slist)
-    n_t = len(tlist)
-    nmax = max(n_m, n_p, n_r, n_u, n_s, n_t)
-    print(n_m, n_p, n_r, n_u, n_s, n_t, nmax)
-
-    mlist = extend_list(mlist, nmax)
-    plist = extend_list(plist, nmax)
-    rlist = extend_list(rlist, nmax)
-    ulist = extend_list(ulist, nmax)
-    slist = extend_list(slist, nmax)
-    tlist = extend_list(tlist, nmax)
-
-    outlist = []
-    for spec in zip(mlist, plist, rlist, ulist, slist, tlist):
-        outlist.append(spec)
-
-    return outlist
-
-def generate_data_tables(run_specs, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None):
+    jruns_home = os.environ['JRUNS']
+    current_user = os.getlogin()
 
     ref_idx = reference_index if isinstance(reference_index, int) else 0
 
@@ -1189,17 +1063,22 @@ def generate_data_tables(run_specs, signals, time_begin, time_end, signal_operat
     taglist = []
     t_fields = []
     xt_fields = []
-    for ii, spec in enumerate(run_specs):
+    for ii, tag in enumerate(run_tags):
 
-        db = spec[0]
-        shot = spec[1]
-        runid = spec[2]
-        user = spec[3]
-        sid = spec[4]
-        tid = spec[5]
-        tag = "%s/%s/%d/%d" % (user, db, shot, runid)
+        stag = tag.strip().split('/')
+        while not stag[-1]:
+            stag = stag[:-1]
+        db = stag[-3].strip()
+        shot = int(stag[-2].strip())
+        runid = int(stag[-1].strip())
+        user = '/'.join(stag[:-3]) if len(stag) > 4 else stag[0]
+        sid = None
+        tid = None
 
-        #print(tag, sid, tid)
+        if user.startswith('jruns/'):
+            requested_user = stag[1]
+            jloc = jruns_home.replace(current_user, requested_user)
+            user = jloc + '/' + '/'.join(stag[2:-3])
 
         onedict = get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=time_end, sid=sid, tid=tid, interpolate=standardize)
         if ii == ref_idx:
@@ -1244,83 +1123,12 @@ def generate_data_tables(run_specs, signals, time_begin, time_end, signal_operat
 
 ####### SCRIPT #######
 
-def compare_runs(signals, dblist, shotlist, runlist, time_begin, time_end=None, time_basis=None, userlist=None, sourcelist=None, transportlist=None, plot=False, analyze=False, correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
 
-    runvec = generate_metadata_table(dblist, shotlist, runlist, userlist, sourcelist, transportlist)
-
-    data_dict, ref_tag = generate_data_tables(runvec, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis)
-
-#    # Only variables in the keys_list will be plotted
-#    if multi_var_function:
-#        keys_list['time_trace'].append(multi_var_function)
-
-#    if not uniform and plot:
-#        plot_traces(plot_dict, single_time_reference=steady_state)
-#        plot_gif_profiles(plot_dict, single_time_reference=steady_state)
-
-#    analysis_dict = standardize_manydict(runvec, sigvec, time_begin, time_end=time_end, time_vector=time_basis, set_reference=ref_tag)
-
-    # Changing the sign of the variable also in the analysis_dict when needed (should not be needed in the future)
-#    if correct_sign:
-#        for key in analysis_dict:
-#            if not key.endswith(".x") and not key.endswith(".t"):
-#                first_index = 0
-#                for tag in analysis_dict[key]:
-#                    if first_index:
-#                        analysis_dict[key][tag] = -analysis_dict[key][tag]
-#                    first_index += 1
-
-
-    # ------------- Adding comparison of functions ------------
-    # Adding the possibility of comparing functions of variables.
-    # Need to interpolate in space and time when the signals are coming from different IDSs...
-    # Only traces are supported for now, so no space interpolation
-
-#    if sigops:
-#        # Changing time vector if it is different between different IDSs
-#        for key in variables_multi_var_function:
-#            time_ref = None
-#            for tag in analysis_dict[key]:
-#                if time_ref is None:
-#                    time_ref = analysis_dict[key+'.t']
-
-#                analysis_dict[key][tag] = fit_and_substitute(analysis_dict[key+".t"], time_ref, analysis_dict[key][tag])
-
-        # Building an array in place of the dictionary to simplify the operation later
-#        analysis_array = {}
-#        for key in variables_multi_var_function:
-#            analysis_array[key] = None
-#            for tag in analysis_dict[key]:
-#                if analysis_array[key] is not None:
-#                    analysis_array[key] = np.hstack((analysis_array[key], analysis_dict[key][tag]))
-#                else:
-#                    analysis_array[key] = analysis_dict[key][tag]
-        # Substituting the key since otherwise it will think that the dots define attributes
-#        multi_var_function = multi_var_function.replace('.', '_')
-#        for key in variables_multi_var_function:
-#            new_key = key.replace('.', '_')
-#            globals()[new_key] = analysis_array[key]
-
-#        new_variable = eval(multi_var_function)
-#        new_variable = new_variable.reshape(len(analysis_dict[key]),len(time_ref))
-
-#        for key in variables_multi_var_function:
-#            new_key = key.replace('.', '_')
-#            del globals()[new_key]
-
-#        analysis_dict[multi_var_function] = {}
-#        for new_slice, tag in zip(new_variable, analysis_dict[variables_multi_var_function[0]]):
-            
-#            analysis_dict[multi_var_function][tag] = new_slice
-#            analysis_dict[multi_var_function+'.t'] = time_ref
-
-        # Already done above
-        #keys_list['time_trace'].append(multi_var_function)
-
-    # -------------------------------------------------------------------------
+    data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis)
 
     if plot:
         if standardize:
@@ -1361,15 +1169,12 @@ def main():
     do_plot = not args.calc_only
     time_averages, time_error_averages, profiles_error_averages = compare_runs(
         signals=args.signal,
-        dblist=args.database,
-        shotlist=args.shot,
-        runlist=args.run,
+        idslist=args.ids,
         time_begin=args.time_begin,
         time_end=args.time_end,
-        userlist=args.user,
         time_basis=args.time_out,
-        sourcelist=args.source,
-        transportlist=args.transport,
+#        sourcelist=args.source,
+#        transportlist=args.transport,
         plot=do_plot,
         analyze=args.analyze,
         correct_sign=args.correct_sign,
