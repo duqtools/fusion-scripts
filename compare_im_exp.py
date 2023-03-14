@@ -4,6 +4,7 @@ import re
 import copy
 import numpy as np
 import math
+import getpass
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 #import matplotlib
@@ -14,10 +15,31 @@ from matplotlib.animation import FuncAnimation
 from IPython import display
 import argparse
 
-import imas
-
 from compare_im_runs import *
 from prepare_im_input import open_and_get_core_profiles
+
+from packaging import version
+
+min_imas_version_str = "3.28.0"
+min_imasal_version_str = "4.7.2"
+
+try:
+    import imas
+except ImportError:
+    warnings.warn("IMAS Python module not found or not configured properly, tools need IDS to work!", UserWarning)
+if imas is not None:
+    from imas import imasdef
+    vsplit = imas.names[0].split("_")
+    imas_version = version.parse(".".join(vsplit[1:4]))
+    ual_version = version.parse(".".join(vsplit[5:]))
+    if imas_version < version.parse(min_imas_version_str):
+        raise ImportError("IMAS version must be >= %s! Aborting!" % (min_imas_version_str))
+    if ual_version < version.parse(min_imasal_version_str):
+        raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
+
+
+
+
 
 '''
 
@@ -29,8 +51,7 @@ plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ni'], verb
 
 '''
 
-
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], verbose = False):
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False):
 
     variable_names = {}
     if 'te' in signals:
@@ -59,7 +80,10 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     ]
 
     core_profiles_exp = open_and_get_core_profiles(db, shot, run_exp)
-    core_profiles_model = open_and_get_core_profiles(db, shot, run_model)
+    #legacy
+    #core_profiles_model = open_and_get_core_profiles(db, shot, run_model)
+
+    core_profiles_model = open_and_get_core_profiles_from_run(db, shot, run_model)
 
     t_cxrs = []
 
@@ -148,8 +172,8 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
         if verbose == 2:
             for i, time in enumerate(exp_data):
 
-                plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], linestyle = ' ', label = 'experiment')
-                plt.plot(exp_data[time]['x'], ytable_final[i], label = 'fit/model')
+                plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], linestyle = ' ', label = 'Experiment')
+                plt.plot(exp_data[time]['x'], ytable_final[i], label = 'Fit/Model')
                 plt.title(str(time))
                 plt.legend()
                 plt.show()
@@ -161,17 +185,27 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
             for y_fit, y_exp, error_point in zip(ytable_final[i], exp_data[time]['y'], errorbar[time]['y']):
                 error_time_space.append(abs(y_fit[0] - y_exp)/error_point)
 
-            if verbose:
-                plt.plot(exp_data[time]['x'], error_time_space, 'bo', label = 'Agreement')
+            if verbose == 2:
+                if label:
+                    plt.plot(exp_data[time]['x'], error_time_space, 'bo', label = label)
+                else:
+                    plt.plot(exp_data[time]['x'], error_time_space, 'bo')
                 plt.title(str(time))
+                plt.xlabel(r'\rho [-]')
+                plt.ylabel('Error')
                 plt.legend()
                 plt.show()
 
             error_time.append(sum(error_time_space)/len(exp_data[time]['y']))
 
-        if verbose == 1:
-            plt.plot(time_vector_exp, error_time, label = 'Agreement')
+        if verbose == 1 or verbose == 2:
+            if label:
+                plt.plot(time_vector_exp, error_time, label = label)
+            else:
+                plt.plot(time_vector_exp, error_time)
             plt.title(variable)
+            plt.xlabel(r't [s]')
+            plt.ylabel('Error')
             plt.legend()
             plt.show()
 
@@ -182,7 +216,43 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     return(errors)
 
 
+def open_and_get_core_profiles_from_run(db, shot, run_name, username=None, backend='mdsplus'):
+
+    if not username:
+        username=getpass.getuser()
+
+    username = '/pfs/work/' + username + '/jetto/runs/' + run_name + '/imasdb/'
+
+    print(username)
+
+    imas_backend = imasdef.MDSPLUS_BACKEND
+    if backend == 'hdf5':
+        imas_backend = imasdef.HDF5_BACKEND
+
+    data_entry = imas.DBEntry(imas_backend, db, shot, 2, user_name=username)
+
+    op = data_entry.open()
+
+    if op[0]<0:
+        cp=data_entry.create()
+        print(cp[0])
+        if cp[0]==0:
+            print("data entry created")
+    elif op[0]==0:
+        print("data entry opened")
+
+    core_profiles = data_entry.get('core_profiles')
+    data_entry.close()
+
+    return(core_profiles)
+
+
+
+
 if __name__ == "__main__":
 
+    #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
+    #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
+    plot_exp_vs_model('tcv', 64862, 5, 'run254test', 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
     print('plot and compares experimental data with fits or model')
 
