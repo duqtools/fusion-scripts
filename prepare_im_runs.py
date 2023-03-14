@@ -9,7 +9,7 @@ import functools
 import re
 from scipy import integrate
 from scipy.interpolate import interp1d, UnivariateSpline
-import idstools
+#import idstools
 #from idstools import *
 from packaging import version
 from os import path
@@ -51,7 +51,12 @@ if imas is not None:
     if ual_version < version.parse(min_imasal_version_str):
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
+import sys
+sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
+
 import jetto_tools
+print(jetto_tools.__version__)
+print(jetto_tools.__file__)
 
 import copy
 
@@ -82,7 +87,6 @@ esco_timesteps:        Number of times esco will be called (homogeneous)
 output_timesteps:      Number of times the output will be printed (homogeneous)
 force_run:             If true, will not stop if the output ids aready exists
 density_feedback:      If True, will setup the density feedback, with the density in summary.line_averaged.density. Does not use the pulse scheduler (It does not work yet)
-pulse_scheduler:       Will fill the pulse scheduler to setup current and Bt
 zeff_options:          Describe how to set the time trace for zeff
 -- 'flat maximum'           Sets the maximum zeff everywhere
 -- 'flat minimum'           Sets the minimum zeff everywhere
@@ -160,14 +164,13 @@ class IntegratedModellingRuns:
         esco_timesteps = None,
         output_timesteps = None,
 	force_run = False,
+        force_input_overwrite = False,
 	density_feedback = False,
-        pulse_scheduler = False,
-	zeff_option = None,
-        zeff_param = 1,
+        setup_time_polygon_flag = False,
+        setup_nbi_flag = False,
+        path_nbi_config = None,
+        json_input = None,
         sensitivity_list = [],
-        input_instructions = [],
-        extra_early_options = [],
-        boundary_instructions = {}
     ):
 
         # db is the name of the machine. Needs to be the name of the imas database.
@@ -187,17 +190,16 @@ class IntegratedModellingRuns:
         self.esco_timesteps = esco_timesteps
         self.output_timesteps = output_timesteps
         self.force_run = force_run
+        self.force_input_overwrite = force_input_overwrite
         self.density_feedback = density_feedback
-        self.pulse_scheduler = pulse_scheduler
+        self.setup_time_polygon_flag = setup_time_polygon_flag
+        self.setup_nbi_flag = setup_nbi_flag
+        self.path_nbi_config = path_nbi_config
         self.core_profiles = None
         self.equilibrium = None
         self.line_ave_density = None
-        self.input_instructions = input_instructions
+        self.json_input = json_input
         self.sensitivity_list = sensitivity_list
-        self.zeff_option = zeff_option
-        self.zeff_param = zeff_param
-        self.extra_early_options = extra_early_options
-        self.boundary_instructions = boundary_instructions
 
         # Trying to be a little flexible with the generator name. It is not used if I am only setting the input.
         # Still mandatory argument, should not be forgotten
@@ -254,6 +256,10 @@ class IntegratedModellingRuns:
             tag = '_' + tag
             self.tag_list.append(tag)
 
+        # Default nbi path is in public.
+        if not self.path_nbi_config:
+            self.path_nbi_config = '/afs/eufus.eu/user/g/g2mmarin/public/tcv_inputs/jetto.nbicfg'
+
         # New instructions are just an array with six True/False (or 0/1). They correspond orderly to what to do in the instruction list
 
     def update_instructions(self, new_instructions):
@@ -299,7 +305,13 @@ class IntegratedModellingRuns:
             print('prepare_input.py not found and needed for this option. Aborting')
             exit()
 
-        self.core_profiles, self.equilibrium = prepare_im_input.setup_input(self.db, self.shot, self.run_input, self.run_start, zeff_option = self.zeff_option, zeff_param = self.zeff_param, instructions = self.input_instructions, boundary_instructions = self.boundary_instructions, time_start = self.time_start, time_end = self.time_end, core_profiles = self.core_profiles, equilibrium = self.equilibrium, extra_early_options = self.extra_early_options)
+        if not self.json_input:
+            json_file_name = '/afs/eufus.eu/user/g/g2mmarin/public/scripts/template_prepare_input.json'
+            print('json input to prepare the runs not specified, using dummy file')
+            json_input_raw = open(json_file_name)
+            self.json_input = json.load(json_input_raw)
+
+        self.core_profiles, self.equilibrium = prepare_im_input.setup_input(self.db, self.shot, self.run_input, self.run_start, json_input = self.json_input, time_start = self.time_start, time_end = self.time_end, force_input_overwrite = self.force_input_overwrite, core_profiles = self.core_profiles, equilibrium = self.equilibrium)
 
 
     def setup_input_sensitivities(self):
@@ -341,18 +353,12 @@ class IntegratedModellingRuns:
             name = name
             mult = float(mult)
     
-            if name == 'te':
-                prepare_im_input.shift_profiles('TE', self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
-            if name == 'ti':
-                prepare_im_input.shift_profiles('TI', self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
-            if name == 'ne':
-                prepare_im_input.shift_profiles('NE', self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
-            if name == 'zeff':
-                prepare_im_input.shift_profiles('ZEFF', self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
             if name == 'tepeak':
                 prepare_im_input.peak_temperature(self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
             if name == 'q95':
                 prepare_im_input.alter_q_profile_same_q95(self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
+            else:
+                prepare_im_input.shift_profiles(name, self.db, self.shot, self.run_start, self.run_start+index, mult = mult)
     
             index += 1
     
@@ -446,6 +452,17 @@ class IntegratedModellingRuns:
         self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, abs(b0), r0)
         #self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, b0, r0)
 
+        if self.setup_nbi_flag:
+            nbi = open_and_get_nbi(self.db, self.shot, self.run_start)
+            if nbi.time != np.asarray([]):
+                self.setup_nbi(path_nbi_config = self.path_nbi_config)
+            else:
+                print('You are trying to setup the nbi but the nbi ids is empty. Aborting')
+                exit()
+
+        if self.setup_time_polygon_flag:
+            self.setup_time_polygon()
+
         # Selecting the impurity correctly in the jset
 
         impurity_jset_linestarts = ['ImpOptionPanel.impuritySelect[]',
@@ -474,7 +491,45 @@ class IntegratedModellingRuns:
                 modify_jset_line(self.baserun_name, line_start, new_content)
 
         modify_llcmd(self.baserun_name, self.generator_name, self.generator_username)
-    
+
+        self.copy_ids_input()
+
+
+    # This will work with MDSPLUS. Should code something else for HDF5
+    def copy_ids_input(self):
+
+        if self.run_start < 10:
+            run_str = '000' + str(self.run_start)
+        elif self.run_start < 100:
+            run_str = '00' + str(self.run_start)
+        elif self.run_start < 1000:
+            run_str = '0' + str(self.run_start)
+        else:
+            run_str = str(self.run_start)
+
+        path_ids_input = '/afs/eufus.eu/user/g/' + self.username + '/public/imasdb/' + self.db + '/3/0/ids_' + str(self.shot) + run_str
+        path_characteristics = path_ids_input + '.characteristics'
+        path_datafile = path_ids_input + '.datafile'
+        path_tree = path_ids_input + '.tree'
+
+        path_output = self.path_baserun+ '/imasdb/' + self.db + '/3/0/ids_' + str(self.shot) + '0001'
+
+        # This creates the folder when the machine is not the same as in the generator case
+        if not os.path.exists(self.path_baserun+ '/imasdb/' + self.db):
+            db_generator = os.listdir(self.path_baserun+ '/imasdb/')[0]
+            shutil.copytree(self.path_baserun+ '/imasdb/' + db_generator, self.path_baserun+ '/imasdb/' + self.db)
+            shutil.rmtree(self.path_baserun+ '/imasdb/' + db_generator)
+
+        # This deletes the IDS of the generator
+        for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/0/'):
+            file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3/0/', filename)
+            os.remove(file_path)
+
+        shutil.copyfile(path_ids_input + '.characteristics', path_output + '.characteristics')
+        shutil.copyfile(path_ids_input + '.datafile', path_output + '.datafile')
+        shutil.copyfile(path_ids_input + '.tree', path_output + '.tree')
+
+
     def create_sensitivities(self):
     
         '''
@@ -543,6 +598,13 @@ class IntegratedModellingRuns:
     
     def run_baserun(self):
     
+        # ------- Not working yet, jetto_tool automatically setup a slurm environment -------
+
+        #    manager = jetto_tools.job.JobManager()
+        #    manager.submit_job_to_batch(config, baserun_name + 'tmp', run=False)
+
+        # ------- Substitute this to the custom automatic run when available --------
+
         os.chdir(self.path + self.baserun_name)
         print('running ' + self.baserun_name)
         os.system('sbatch ./.llcmd')
@@ -664,6 +726,9 @@ class IntegratedModellingRuns:
 
         put_extraname_fields(self.path_baserun, extranamelist)
 
+        # A temporary function to handle arrays since the pythontools do not do it yet. When the option comes online again use that.
+        self.tmp_handle_arrays_open()
+
         template = jetto_tools.template.from_directory(self.path_baserun)
         config = jetto_tools.config.RunConfig(template)
 
@@ -685,7 +750,6 @@ class IntegratedModellingRuns:
             config.profile_timesteps = self.output_timesteps
             config['ntint'] = self.output_timesteps
 
-
         config.start_time = self.time_start
         config.end_time = self.time_end
 
@@ -695,14 +759,30 @@ class IntegratedModellingRuns:
         config['nzeq'] = 12.0
         config['zipi'] = 6
 
-        # Should automatically run the simulation. Not working for the gateway currently...
-        #manager = jetto_tools.job.JobManager()
-        #manager.submit_job_to_batch(config, path + baserun_name, run=False)
-
         config.export(self.path_baserun + 'tmp')
         shutil.copyfile(self.path_baserun + 'tmp' + '/jetto.jset', self.path_baserun + '/jetto.jset')
         #shutil.copyfile(self.path_baserun + 'tmp' + '/jetto.in', self.path_baserun + '/jetto.in')
         shutil.rmtree(self.path_baserun + 'tmp')
+
+        # A temporary function to handle arrays since the pythontools do not do it yet. When the option comes online again use that.
+        self.tmp_handle_arrays_close()
+
+
+    def tmp_handle_arrays_open(self):
+        extranamelist = get_extraname_fields(self.path_baserun)
+        for key in extranamelist:
+            if '(' in extranamelist[key][0] and ')' in extranamelist[key][0]:
+                extranamelist[key][0] = '\'' + extranamelist[key][0] + '\''
+        put_extraname_fields(self.path_baserun, extranamelist)
+
+
+    def tmp_handle_arrays_close(self):
+        extranamelist = get_extraname_fields(self.path_baserun)
+        for key in extranamelist:
+            if '(' in extranamelist[key][0] and ')' in extranamelist[key][0]:
+                extranamelist[key][0] = extranamelist[key][0].strip('\'')
+        put_extraname_fields(self.path_baserun, extranamelist)
+
 
     def increase_processors(self, processors = 8, walltime = 24):
 
@@ -737,15 +817,6 @@ class IntegratedModellingRuns:
     
         '''
 
-        # This might still be useful if trying to use this function standalone, but confusion now   
-        #if not os.path.exists(self.path_baserun):
-        #    shutil.copytree(self.path_generator, self.path_baserun)
-        #else:
-        #    shutil.copyfile(self.path_generator + '/lookup.json', self.path_baserun + '/lookup.json')
-    
-        add_item_lookup('dneflfb', 'null', 'NLIST4', 'real', 'vector', self.path_baserun)
-        add_item_lookup('dtneflfb', 'null', 'NLIST4', 'real', 'vector', self.path_baserun)
-
         dneflfb_strs = []
         for density in self.line_ave_density*1e-6:
             dneflfb_strs.append(str(density))
@@ -764,6 +835,11 @@ class IntegratedModellingRuns:
         extranamelist = add_extraname_fields(extranamelist, 'DTNEFLFB', dtneflfb_strs)
         put_extraname_fields(self.path_baserun, extranamelist)
 
+        # Ideally the following should be enough. Currently it is not working.
+        '''
+        add_item_lookup('dneflfb', 'null', 'NLIST4', 'real', 'vector', self.path_baserun)
+        add_item_lookup('dtneflfb', 'null', 'NLIST4', 'real', 'vector', self.path_baserun)
+
         template = jetto_tools.template.from_directory(self.path_baserun)
         config = jetto_tools.config.RunConfig(template)
 
@@ -775,17 +851,9 @@ class IntegratedModellingRuns:
         config.export(self.path_baserun + 'tmp')
         shutil.copyfile(self.path_baserun + 'tmp' + '/jetto.jset', self.path_baserun + '/jetto.jset')
         shutil.rmtree(self.path_baserun + 'tmp')
-    
-        # ------- Not working yet, jetto_tool automatically setup a slurm environment -------
-    
-        #    manager = jetto_tools.job.JobManager()
-        #    manager.submit_job_to_batch(config, baserun_name + 'tmp', run=False)
-    
-        # ------- Substitute this to the custom automatic run when available --------
-    
+        '''
 
-
-    def modify_jset(self, path, sensitivity_name, ids_number, ids_output_number, b0, r0):
+    def modify_jset(self, path, run_name, ids_number, ids_output_number, b0, r0):
     
         '''
     
@@ -826,8 +894,8 @@ class IntegratedModellingRuns:
         ]
     
         new_content_list = [
-            path + sensitivity_name + '/jetto.jset', 
-            sensitivity_name[3:], 
+            path + run_name + '/jetto.jset', 
+            run_name[3:], 
             str(ids_number), 
             str(ids_output_number), 
             self.db, 
@@ -857,8 +925,38 @@ class IntegratedModellingRuns:
         # ImpOptionPanel.impuritySelect[1]                            : false to deselect the impurity
     
         for line_start, new_content in zip(line_start_list, new_content_list):
-            modify_jset_line(sensitivity_name, line_start, new_content)
-    
+            modify_jset_line(run_name, line_start, new_content)
+
+
+    def modify_ascot_cntl(self, run_name):
+
+        line_start = 'Creation Name'
+        modify_ascot_cntl_line(run_name, line_start, run_name + '/ascot.cntl')
+
+
+    def modify_jset_nbi(self, run_name, nbi_config_name):
+
+        '''
+
+        Modifies the jset file to accomodate a new run name, username, shot and run. Database not really implement
+ed yet
+
+        '''
+
+        line_start_list = [
+            'NBIAscotRef.configFileName',
+            'NBIAscotRef.configPrvDir'
+        ]
+
+        new_content_list = [
+            nbi_config_name,
+            '/afs/eufus.eu/user/g/g2ethole/public/tcv_inputs'
+        ]
+
+        for line_start, new_content in zip(line_start_list, new_content_list):
+            modify_jset_line(run_name, line_start, new_content)
+
+
     def modify_jetto_in(self, sensitivity_name, r0, b0, time_start, time_end, num_times_print = None, num_times_eq = None, imp_datas_ids = [[1.0, 12.0, 6, 6.0]], ibtsign = 1, interpretive_flag = False):
 
         '''
@@ -970,22 +1068,41 @@ class IntegratedModellingRuns:
 
 
         if self.line_ave_density is not None:
+            # -------------- First delete lines if they are already there -----------------
+            lines_to_kill = []
+            for line in read_data:
+                if line.startswith('  DNEFLFB'):
+                    lines_to_kill.append(line)
+
+            for line_to_kill in lines_to_kill:
+                read_data.remove(line_to_kill)
+
             # -------------- Feedback density density -----------------
             dneflfb_lines = []
             for index_dens, dens_value in enumerate(self.line_ave_density):
-                dneflfb_line = '  DNEFLFB' + '(' + str(index_dens+1) + ')' + ' =  ' + str(dens_value) + '    , \n'
+                dneflfb_line = '  DNEFLFB' + '(' + str(index_dens+1) + ')' + ' =  ' + str(dens_value*1e-6) + '    , \n'
                 dneflfb_lines.append(dneflfb_line)
 
-            read_data.insert(index_nlist4+10, dneflfb_lines)
+            for index, dneflfb_line in enumerate(dneflfb_lines):
+                read_data.insert(index_nlist4+10+index, dneflfb_line)
     
             # -------------- Feedback density time --------------------
+            # -------------- First delete lines if they are already there -----------------
+            lines_to_kill = []
+            for line in read_data:
+                if line.startswith('  DTNEFLFB'):
+                    lines_to_kill.append(line)
+
+            for line_to_kill in lines_to_kill:
+                read_data.remove(line_to_kill)
 
             dtneflfb_lines = []
             for index_time, time_value in enumerate(self.dens_feedback_time):
                 dtneflfb_line = '  DTNEFLFB' + '(' + str(index_time+1) + ')' + ' =  ' + str(time_value) + '    , \n'
                 dtneflfb_lines.append(dtneflfb_line)
 
-            read_data.insert(index_nlist4+12, dtneflfb_lines)
+            for index, dtneflfb_line in enumerate(dtneflfb_lines):
+                read_data.insert(index_nlist4+12+len(dneflfb_lines)+index, dtneflfb_line)
 
         # Need to extract the previous TPRINT and adapt the array to the new start time-end time
         if not num_times_print:
@@ -1063,6 +1180,243 @@ class IntegratedModellingRuns:
             for line in read_data:
                 f.writelines(line)
 
+
+    def setup_nbi(self, path_nbi_config = '/afs/eufus.eu/user/g/g2mmarin/public/tcv_inputs/jetto.nbicfg'):
+
+        self.modify_jetto_nbi_config(path_nbi_config = path_nbi_config)
+        self.modify_jset_nbi(self.path + self.baserun_name, path_nbi_config + self.baserun_name)
+        self.modify_ascot_cntl(self.path + self.baserun_name)
+        shutil.copyfile(path_nbi_config + self.baserun_name, self.path + self.baserun_name + '/jetto.nbicfg')
+
+
+    def setup_time_polygon(self):
+
+        modify_jset_time_polygon(self.path + self.baserun_name, self.time_start, self.time_end)
+        modify_jettoin_time_polygon(self.path + self.baserun_name + '/jetto.in', self.time_start, self.time_end)
+
+
+    def modify_jetto_nbi_config(self, path_nbi_config):
+
+        nbi_ids = open_and_get_nbi(self.db, self.shot, self.run_start)
+
+
+        # Set incipit
+        energy, A, Z = [], [], []
+        for unit in nbi_ids.unit:
+            energy.append(np.average(unit.energy.data[unit.energy.data != 0]))
+            A.append(unit.species.a)
+            Z.append(unit.species.z_n)
+
+        fractions = []
+        for unit in nbi_ids.unit:
+            # Assume that there are only 3 energy fractions. This should be general (1, 1/2, 1/3 energy)
+            for i in range(3):
+                fractions_array = unit.beam_power_fraction.data[i][unit.beam_power_fraction.data[i] != 0]
+                fractions_array = fractions_array[fractions_array != 1]
+                fractions.append(np.average(fractions_array))
+
+        energy, fractions = np.asarray(energy), np.asarray(fractions)
+        energy[np.isnan(energy)] = 0
+        fractions[np.isnan(fractions)] = 0
+        fractions = np.around(fractions.reshape(len(nbi_ids.unit), 3), 2)
+        
+        for i, fraction in enumerate(fractions):
+            fractions[i,0] = 1 - fractions[i,1] - fractions[i,2]
+
+        fractions = fractions.T
+
+        ntimes = np.size(nbi_ids.time)
+
+        lines = []
+        with open(path_nbi_config) as f:
+            lines_file = f.readlines()
+            for line in lines_file:
+                lines.append(line)
+
+        starts = ['E1 [keV]', 'f1', 'f2', 'f3', 'ANum', 'ZNum']
+        all_values = [energy, fractions[0], fractions[1], fractions[2], A, Z]
+
+        for start, values in zip(starts, all_values):
+            new_lines = []
+            for line in lines:
+                new_lines.append(change_line_nbi(line, start, values))
+            lines = new_lines
+
+        # Set Ntimes
+        lines = lines[:-3]
+        num_times = 2500
+        line_ntimes = 'Ntimes' + ' '*12 + str(num_times) + '\n'
+        lines.append(line_ntimes)
+
+        # Set new time
+        time_min = max(0, min(nbi_ids.time))
+        time_max = max(nbi_ids.time)
+        new_times = np.linspace(time_min, time_max, num=num_times)
+
+        # Set powers
+        powers = np.asarray([])
+        for unit in nbi_ids.unit:
+            power = fit_and_substitute(nbi_ids.time, new_times, unit.power_launched.data)
+            powers = np.hstack((powers, power))
+
+        powers = powers.reshape(3, num_times)
+        powers = powers.T
+
+        lines_power = []
+        for time, power in zip(new_times, powers):
+            add_line_power(lines_power, time, power)
+        
+        lines.append(lines_power)
+
+        with open(path_nbi_config + self.baserun_name, 'w') as f:
+            for line in lines:
+                f.writelines(line)
+
+
+def change_line_nbi(line, start, values):
+
+    values_str = []
+    len_values_str = []
+    new_line = line
+
+    for value in values:
+        if start == 'E1 [keV]':
+            values_str.append('{0:.2f}'.format(value*1e-3))
+        elif start == 'f1' or start == 'f2' or start == 'f3': 
+            values_str.append('{0:.2f}'.format(value))
+        elif start == 'ANum' or start == 'ZNum':
+            values_str.append('{0:.0f}'.format(value))
+        len_values_str.append(len(values_str[-1]))
+
+    if line.startswith(start):
+        num_spaces_start = 22 - len(start) - len_values_str[0]
+        num_spaces1 = 8 - len_values_str[1]
+        num_spaces2 = 8 - len_values_str[2]
+        new_line = start + ' '*num_spaces_start + values_str[0] 
+        new_line += ' '*num_spaces1 + values_str[1] + ' '*num_spaces2 + values_str[2] + '\n'
+
+    return new_line
+
+def add_line_power(lines, time, powers):
+
+    power_str = []
+    len_power_str = []
+
+
+    for power in powers:
+        power_str.append('{0:.3f}'.format(power*1e-6))
+        len_power_str.append(len(power_str[-1]))
+
+    if time > 1:
+        num_digits = math.floor(math.log10(abs(time)))
+    else:
+        num_digits = 0
+
+    time_str = eval('\'{0:.' + str(4-num_digits) + 'f}\'.format(time)')
+    time_str = ' ' + time_str
+
+    num_spaces_start = 15 - len_power_str[0]
+    num_spaces1 = 8 - len_power_str[1]
+    num_spaces2 = 8 - len_power_str[2]
+    new_line = time_str + ' '*num_spaces_start + power_str[0]
+    new_line += ' '*num_spaces1 + power_str[1] + ' '*num_spaces2 + power_str[2]  + '\n'
+
+    lines.append(new_line)
+
+    return lines
+
+
+def modify_jset_time_polygon(run_name, time_start, time_end):
+
+    times = [time_start, time_start+0.001, time_start+0.01, time_start+0.02, time_end]
+    values = [2.0e-6, 4.0e-6, 2.0e-4, 1.0e-3, 1.0e-3]
+
+    line_start_list = ['SetUpPanel.maxTimeStep.option']
+    for itime in range(len(times)):
+        line_start_list.append('SetUpPanel.maxTimeStep.tpoly.select[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append('SetUpPanel.maxTimeStep.tpoly.time[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append('SetUpPanel.maxTimeStep.tpoly.value[' + str(itime) + ']')
+
+    new_content_list = ['Time Dependent']
+    for itime in range(len(times)):
+        new_content_list.append('true')
+    for time in times:
+        new_content_list.append(str(time))
+    for value in values:
+        new_content_list.append(str(value))
+
+    for line_start, new_content in zip(line_start_list, new_content_list):
+        modify_jset_line(run_name, line_start, new_content)
+
+
+def modify_jettoin_time_polygon(path_jetto_in, time_start, time_end):
+
+    fields_single = ['  DTMAX', '  NDTMAX']
+    fields_array = ['  PDTMAX', '  TDTMAX']
+
+    max_step_mults = [1.0, 2.0, 100.0, 500.0,  500.0]
+    times = [time_start, time_start+0.001, time_start+0.01, time_start+0.02, time_end]
+
+    numbers_single = [2.0e-6, 5]
+    numbers_array = [max_step_mults, times]
+
+    modify_jettoin_time_polygon_single(path_jetto_in, fields_single, numbers_single)
+    modify_jettoin_time_polygon_array(path_jetto_in, fields_array, numbers_array)
+
+def modify_jettoin_time_polygon_single(path_jetto_in, fields, numbers):
+
+    jetto_in_nameslist, lines = {}, []
+
+    for field, number in zip(fields, numbers):
+        jetto_in_nameslist[field] = str(number)
+
+    with open(path_jetto_in) as f:
+        lines_file = f.readlines()
+        for line in lines_file:
+            lines.append(line)
+
+    for index, line in enumerate(lines):
+        for jetto_name in jetto_in_nameslist:
+            if line.startswith(jetto_name):
+                lines[index] = lines[index][:14] + jetto_in_nameslist[jetto_name] + '    ,'  + '\n'
+
+    with open(path_jetto_in, 'w') as f:
+        for line in lines:
+            f.writelines(line)
+
+def modify_jettoin_time_polygon_array(path_jetto_in, fields, numbers):
+
+    jetto_in_nameslist, lines = {}, []
+
+    for field, number in zip(fields, numbers):
+        jetto_in_nameslist[field] = number
+
+    str_array = {}
+    for field in jetto_in_nameslist:
+        str_array[field] = ''
+        for number in jetto_in_nameslist[field]:
+            num_spaces = 9 - len(str(number))
+            str_array[field] += '  ' + str(number) + ' '*num_spaces + ','
+        str_array[field] += '\n'
+        str_array[field] = str_array[field][2:]
+
+    with open(path_jetto_in) as f:
+        lines_file = f.readlines()
+        for line in lines_file:
+            lines.append(line)
+
+    for index, line in enumerate(lines):
+        for jetto_name in jetto_in_nameslist:
+            if line.startswith(jetto_name):
+                lines[index] = lines[index][:14] + str_array[jetto_name]
+
+    with open(path_jetto_in, 'w') as f:
+        for line in lines:
+            f.writelines(line)
+
+
 def get_extraname_fields(path):
 
     '''
@@ -1089,7 +1443,7 @@ def get_extraname_fields(path):
         indexs2.append(int(line.split('[')[2].split(']')[0]))
         values.append(line[62:-1])
 
-    # The following assumes that the elements in the extranamelist are alway in order 0-1-2
+    # The following assumes that the elements in the extranamelist are always in order 0-1-2-3
 
     extranamelist = {}
     array_flag = False
@@ -1109,6 +1463,14 @@ def get_extraname_fields(path):
                 extranamelist[key].append(value)
             else:
                 extranamelist[key] = [value]
+
+        # If the item in the extranamelist is not active just kill it
+        if index2 == 3:
+            if value == 'false':
+                extranamelist.pop(key)
+
+
+    # Could code something that kills the namelist entry if the third entry does not exists, for legacy purposes
 
     return extranamelist
 
@@ -1137,6 +1499,8 @@ def put_extraname_fields(path, extranamelist):
 
     index_start += 1
 
+    # Could keep this as a legacy option
+    '''
     extranamelist_lines = []
     ilist = 0
     for index_item, item in enumerate(extranamelist.items()):
@@ -1144,6 +1508,7 @@ def put_extraname_fields(path, extranamelist):
             new_line1 = namelist_start + '[' + str(ilist) + ']' + '[' + str(0) + ']'
             new_line2 = namelist_start + '[' + str(ilist) + ']' + '[' + str(1) + ']'
             new_line3 = namelist_start + '[' + str(ilist) + ']' + '[' + str(2) + ']'
+            new_line4 = namelist_start + '[' + str(ilist) + ']' + '[' + str(3) + ']'
 
             spaces = ' '*(60 - len(new_line1))
 
@@ -1154,17 +1519,46 @@ def put_extraname_fields(path, extranamelist):
                 new_line2 = new_line2 + spaces + ': ' + str(ielement+1) + '\n'
             new_line3 = new_line3 + spaces + ': ' + element + '\n'
 
+            new_line4 = new_line4 + spaces + ': true \n'
+
             extranamelist_lines.append(new_line1)
             extranamelist_lines.append(new_line2)
             extranamelist_lines.append(new_line3)
+            extranamelist_lines.append(new_line4)
 
             ilist += 1
 
-    #for line in extranamelist_lines:
-        #print(line)
+    '''
+    extranamelist_lines = []
+    ilist = 0
+    for index_item, item in enumerate(extranamelist.items()):
+        new_line1 = namelist_start + '[' + str(ilist) + ']' + '[' + str(0) + ']'
+        new_line2 = namelist_start + '[' + str(ilist) + ']' + '[' + str(1) + ']'
+        new_line3 = namelist_start + '[' + str(ilist) + ']' + '[' + str(2) + ']'
+        new_line4 = namelist_start + '[' + str(ilist) + ']' + '[' + str(3) + ']'
+
+        spaces = ' '*(60 - len(new_line1))
+
+        new_line1 = new_line1 + spaces + ': ' + item[0] + '\n'
+        new_line2 = new_line2 + spaces + ': \n'
+        if len (item[1]) == 1:
+            new_line3 = new_line3 + spaces + ': ' + item[1][0] + '\n'
+        else:
+            new_line3 = new_line3 + spaces + ': ('
+            for element in item[1]:
+                new_line3 = new_line3 + str(element) + ' ,'
+            new_line3 = new_line3[:-2] + ') \n'
+
+        new_line4 = new_line4 + spaces + ': true \n'
+
+        extranamelist_lines.append(new_line1)
+        extranamelist_lines.append(new_line2)
+        extranamelist_lines.append(new_line3)
+        extranamelist_lines.append(new_line4)
+
+        ilist += 1
 
     read_lines.insert(index_start, extranamelist_lines)
-
 
     with open(path + '/' + 'jetto.jset', 'w') as f:
         for line in read_lines:
@@ -1185,7 +1579,7 @@ def get_put_namelist(path):
     put_extraname_fields(path, extranamelist)
 
 
-def modify_jset_line(sensitivity_name, line_start, new_content):
+def modify_jset_line(run_name, line_start, new_content):
 
     '''
 
@@ -1195,7 +1589,7 @@ def modify_jset_line(sensitivity_name, line_start, new_content):
     read_data = []
 
     len_line_start = len(line_start)
-    with open(sensitivity_name + '/' + 'jetto.jset') as f:
+    with open(run_name + '/' + 'jetto.jset') as f:
         lines = f.readlines()
         for line in lines:
             read_data.append(line)
@@ -1204,12 +1598,36 @@ def modify_jset_line(sensitivity_name, line_start, new_content):
             if line[:len_line_start] == line_start:
                 read_data[index] = read_data[index][:62] + new_content + '\n'
 
-    with open(sensitivity_name + '/' + 'jetto.jset', 'w') as f:
+    with open(run_name + '/' + 'jetto.jset', 'w') as f:
         for line in read_data:
             f.writelines(line)
 
 
-def modify_llcmd(sensitivity_name, baserun_name, generator_username):
+def modify_ascot_cntl_line(run_name, line_start, new_content):
+
+    '''
+
+    Modifies a line of the ascot_cntl file. Maybe it would be better to change all the lines at once but future work, not really speed limited now
+
+    '''
+    read_data = []
+
+    len_line_start = len(line_start)
+    with open(run_name + '/' + 'ascot.cntl') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+        for index, line in enumerate(read_data):
+            if line[:len_line_start] == line_start:
+                read_data[index] = read_data[index][:42] + new_content + '\n'
+
+    with open(run_name + '/' + 'ascot.cntl', 'w') as f:
+        for line in read_data:
+            f.writelines(line)
+
+
+def modify_llcmd(run_name, baserun_name, generator_username):
 
     '''
 
@@ -1220,19 +1638,19 @@ def modify_llcmd(sensitivity_name, baserun_name, generator_username):
     read_data = []
     username = username = getpass.getuser()
 
-    with open(sensitivity_name + '/' + '.llcmd') as f:
+    with open(run_name + '/' + '.llcmd') as f:
         lines = f.readlines()
         for line in lines:
             read_data.append(line)
 
         for index, line in enumerate(read_data):
-            read_data[index] = line.replace(baserun_name, sensitivity_name)
+            read_data[index] = line.replace(baserun_name, run_name)
             if generator_username:
 #                print('changing' + generator_username + 'in' + username)
                 read_data[index] = read_data[index].replace(generator_username, username)
 
 
-    with open(sensitivity_name + '/' + '.llcmd', 'w') as f:
+    with open(run_name + '/' + '.llcmd', 'w') as f:
         for line in read_data:
             f.writelines(line)
 
@@ -1333,6 +1751,8 @@ def open_and_get_pulse_schedule(db, shot, run, username = ''):
 
     return(pulse_schedule)
 
+def open_and_get_core_sources(db, shot, run, username = ''):
+
     if username == '':
         data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
     else:
@@ -1348,8 +1768,42 @@ def open_and_get_pulse_schedule(db, shot, run, username = ''):
     elif op[0]==0:
         print("data entry opened")
 
-    core_profiles = data_entry.get('core_profiles')
+    core_sources = data_entry.get('core_profiles')
     data_entry.close()
+
+    return(core_sources)
+
+def open_and_get_nbi(db, shot, run, username = ''):
+
+    if username == '':
+        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
+    else:
+        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
+
+    op = data_entry.open()
+
+    if op[0]<0:
+        cp=data_entry.create()
+        print(cp[0])
+        if cp[0]==0:
+            print("data entry created")
+    elif op[0]==0:
+        print("data entry opened")
+
+    nbi = data_entry.get('nbi')
+    data_entry.close()
+
+    return(nbi)
+
+def fit_and_substitute(x_old, x_new, data_old):
+
+    f_space = interp1d(x_old, data_old, fill_value = 'extrapolate')
+
+    variable = np.array(f_space(x_new))
+    variable[variable > 1.0e25] = 0
+
+    return variable
+
 
 if __name__ == "__main__":
     print('main')
