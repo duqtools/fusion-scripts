@@ -5,6 +5,9 @@ import compare_im_runs
 import prepare_im_input
 import compare_im_exp
 
+from pathlib import Path
+from sawteeth import plot_inversion_radius
+
 '''
 
 Shows the comparison for multiple signals, multiple plots and multiple settings
@@ -16,9 +19,7 @@ plot_errors('/afs/eufus.eu/user/g/user/mylist.txt', ['summary.global_quantities.
 
 '''
 
-
 exp_signal_list = ['te', 'ne', 'ti', 'ni']
-
 
 def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
 
@@ -63,20 +64,47 @@ def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_e
     return(compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0))
 
 
+def get_sawteeth_error(shot, run_output, saw_file_path = None, time_begin = None, time_end = None, db = 'tcv'):
+
+    if not saw_file_path:
+        print('File for sawteeth not provided. This should not happen. Terminating')
+        exit()
+
+    saw_file = Path(saw_file_path)
+
+    if not saw_file.is_file():
+        print('The path provided for the sawteeth file of shot ' + str(shot) + ' is not valid')
+        print('Returning 0. Careful! Does not mean perfect agreement!')
+        return(0)
+
+    return plot_inversion_radius(db, shot, run_output, saw_file_path, time_start = time_begin, time_end = time_end)
+
+
 def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
 
     file_runs = open(filename, 'r')
     lines = file_runs.readlines()
-    shot_list, run_input_list, run_output_list = [], [], []
+    shot_list, run_input_list, run_output_list, saw_file_paths = [], [], [], []
     labels_plot = lines[0].split(' ')
     for line in lines[1:]:
         shot, run_input, *runs_output = line.split(' ')
         shot_list.append(int(shot))
         run_input_list.append(int(run_input))
         # Want to compare multiple series of runs to check which one is better
-        num_run_series = len(runs_output)
-        for run_output in runs_output:
-            run_output_list.append(int(run_output))
+        # If the last element of the split is a path, that will be the path for the math file of the sawteeth analysis
+        # Being the last value the string has a /n as last character. It is removed by [:-1]
+        candidate_saw_path = Path(runs_output[-1][:-1])
+        if not candidate_saw_path.is_file():
+            num_run_series = len(runs_output)
+            for run_output in runs_output:
+                run_output_list.append(int(run_output))
+            # Maybe not a nice way to do it but keeps the structure later
+            saw_file_paths.append(None)
+        else:
+            num_run_series = len(runs_output) - 1
+            for run_output in runs_output[:-1]:
+                run_output_list.append(int(run_output))
+            saw_file_paths.append(runs_output[-1][:-1])
 
     run_output_list = np.asarray(run_output_list).reshape(len(lines)-1, num_run_series)
 
@@ -108,16 +136,21 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             for run_serie in range(num_run_series):
                 errors = []
                 #if signal not in exp_signal_list:
-                for shot, run_input, run_output in zip(shot_list, run_input_list, run_output_list[:,run_serie]):
-                    if signal not in exp_signal_list:
-                         errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                for shot, run_input, run_output, saw_file_path in zip(shot_list, run_input_list, run_output_list[:,run_serie], saw_file_paths):
+                    if signal in exp_signal_list:
+                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                    elif signal == 'sawteeth':
+                         errors.append(get_sawteeth_error(shot, run_output, saw_file_path, time_begin = time_begin, time_end = time_end))
                     else:
-                         errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                         errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/num_run_series + run_serie*width, errors, width, label=labels_plot[run_serie])
 
             # Add some text for labels, title and custom x-axis tick labels, etc.
-            ax[icolumns][iraws].set_ylabel('Distance')
+            if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
+                ax[icolumns][iraws].set_ylabel('Error [-]')
+            else:
+                ax[icolumns][iraws].set_ylabel('Distance')
             ax[icolumns][iraws].set_title(signal)
             ax[icolumns][iraws].set_xticks(x, labels)
             ax[icolumns][iraws].legend()
@@ -146,7 +179,10 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                 rects = ax[icolumns][iraws].bar(x - width + width/len(shot_list) + shot*width, errors, width, label=shot_list[shot])
 
             # Add some text for labels, title and custom x-axis tick labels, etc.
-            ax[icolumns][iraws].set_ylabel('Distance')
+            if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
+                ax[icolumns][iraws].set_ylabel('Error [-]')
+            else:
+                ax[icolumns][iraws].set_ylabel('Distance')
             ax[icolumns][iraws].set_title(signal)
             ax[icolumns][iraws].set_xticks(x, labels_plot)
             ax[icolumns][iraws].legend()
@@ -157,6 +193,5 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
 
 
 if __name__ == "__main__":
-
-    print('compare sets of runs')
+    print('for scripting directly')
 
