@@ -1,0 +1,108 @@
+{
+    "instructions": {
+        "flipping ip": "auto",
+        "average": false,
+        "rebase": false,
+        "nbi heating": false,
+        "add early profiles": false,
+        "peak temperature": false,
+        "multiply electron temperature": false,
+        "multiply ion temperature": false,
+        "multiply electron density": false,
+        "multiply q profile": false,
+        "set boundaries": false,
+        "correct boundaries": false,
+        "correct zeff": false,
+        "correct ion temperature": false,
+        "flat q profile": false
+    },
+
+    "rebase": {
+        "option": "core profiles",
+        "num times": 100
+    },
+
+    "zeff profile": "flat",
+    "zeff profile options": [
+        "original",
+        "flat",
+        "parabolic zeff",
+        "peaked zeff",
+        "peaked zeff evolved",
+        "low edge zeff"
+    ],
+    "zeff profile parameter": 1,
+
+    "zeff evolution": "original",
+    "zeff evolution options":[
+        "original",
+        "flat maximum",
+        "flat minimum",
+        "flat median",
+        "impurity from flattop",
+        "linear descending zeff",
+        "ip ne scaled",
+        "hyperbole"
+    ],
+    "zeff evolution parameter": 0,
+    "zeff max evolution": 3,
+
+    "boundary instructions": {
+        "method te": "constant",
+        "te sep": 20,
+        "method ti": false,
+        "ti sep": 20,
+        "method ne": false,
+        "ne sep": 0.5e19,
+        "bound te down": 30,
+        "bound te up": 100,
+        "time continuity": 0.05,
+        "temp start": 20,
+        "method options": [
+            "constant",
+            "linear",
+            "add",
+            "add on te",
+            "add on te profile",
+            "add no start",
+            "add early",
+            "add early high"
+        ]
+    },
+    "extra early options": {
+        "flat q profile": true,
+        "normalize density to line ave": true,
+        "ne peaking 0": 0,
+        "te peaking 0": 0,
+        "ti peaking 0": 0,
+        "electron density option": "first profile",
+        "electron density method options": [
+            "flat",
+            "first profile",
+            "linear",
+            "parabolic"
+        ],
+        "ion density option": "first profile",
+        "ion density method options": [
+            "flat",
+            "first profile",
+            "linear",
+            "parabolic"
+        ],
+        "electron temperature option": "first profile",
+        "electron temperature method options": [
+            "flat",
+            "first profile",
+            "linear",
+            "parabolic"
+        ],
+        "ion temperature option": "first profile",
+        "ion temperature method options": [
+            "flat",
+            "first profile",
+            "electron first profile",
+            "linear",
+            "parabolic"
+        ]
+    }
+}
