@@ -2998,6 +2998,24 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
         q_new.append(q_slice)
 
     ids_dict['profiles_1d']['profiles_1d.q'] = np.asarray(q_new)
+
+    q_old, rho = ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']
+
+    # Changing the q profile both in equilibrium and core profiles
+    q_new = []
+    for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
+        # This normalizes the q95 from the extrapolation to the value expected from the other parameters
+        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+        q95 = abs(q_slice[index_rho_95])
+
+        q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
+        #q_slice = q_slice/q95*q95_norm
+
+        # This makes it easier to decide a value for q[0]. Could live it as an option.
+        mult_slice = abs(mult/q_slice[0])
+        q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
+        q_new.append(q_slice)
+
     ids_dict['profiles_1d']['q'] = np.asarray(q_new)
 
     '''
