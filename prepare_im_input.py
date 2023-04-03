@@ -17,7 +17,12 @@ from os import path
 import inspect
 import types
 import pdb
+import xarray as xr
 
+import duqtools
+from duqtools.api import ImasHandle
+from duqtools.api import Variable
+from duqtools.api import rebase_on_time
 
 #import matplotlib.pyplot as plt
 
@@ -26,7 +31,6 @@ from IPython import display
 
 import xml.sax
 import xml.sax.handler
-
 min_imas_version_str = "3.28.0"
 min_imasal_version_str = "4.7.2"
 
@@ -65,8 +69,63 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     '''
 
     username = getpass.getuser()
+    '''
+    #handle = ImasHandle(user = username, db = 'tcv', shot = 64862, run = 5)
+    #print(handle.path())
+    #handle.exists()
+
+    target = ImasHandle(user = username, db = 'tcv', shot = 64862, run = 5000)
+
+    #handle.copy_data_to(target)
+    #target.exists()
+
+    core_profiles = target.get('core_profiles')
+    t_i_average = core_profiles.get('profiles_1d/1/t_i_average')
+
+    a = core_profiles.get('profiles_1d/*/ions/*/z')
+
     #average, rebase, nbi_heating, flat_q_profile = False, False, False, False
     #correct_Zeff, set_boundaries, correct_boundaries, adding_early_profiles = False, False, False, False
+
+    variable = [
+        Variable(name='ion_temperature',
+                 ids = 'core_profiles',
+                 path = 'profiles_1d/*/ion/*/z_ion',
+                 dims = ['time', 'ion']),
+        't_i_ave',
+        'rho_tor_norm',
+        'time'
+    ]
+
+    #merge_data(handle, target, 'zeff'):
+    #core_profiles = target.get('core_profiles')
+    zeff = target.get_variables(['zeff','rho_tor_norm','time'])
+
+    dataset_all = target.get_all_variables()
+
+    print(dataset_all)
+
+    dataset = target.get_variables(variable)
+
+    # This will rewrite the IDS
+    #core_profiles.sync(target)
+
+    times = [0.1,0.2,0.3]
+
+    rebased_dataset = rebase_on_time(dataset, time_dim='time', new_coords = times)
+
+    print(rebased_dataset)
+    '''
+    # And then add strings and special cases separately
+
+    # Need to import variable_dict
+    #variables = variable_dict.values()
+    option = 'something'
+    set_flat_zeff(db, shot, run_input, run_start, option, username = None)
+
+
+    exit()
+
 
     # Checking that everything is fine with the input options
     if json_input['zeff profile'] not in json_input['zeff profile options']:
@@ -1825,8 +1884,75 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mds
 
 # ------------------------------- ZEFF MANIPULATION ---------------------------------
 
+def open_and_copy_handle_target(db, shot, run, run_target):
+
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    # Test what this does
+    #handle.exists()
+    target = ImasHandle(user = username, db = db, shot = shot, run = run_target)
+    handle.copy_data_to(target)
+    #target.exists()
+
+    return handle, target
+
+def set_default_entries(username, db, shot, username_target, db_target, shot_target):
+
+    if not username:
+        username=getpass.getuser()
+    if not db_target:
+        db_target = db
+    if not shot_target:
+        shot_target = shot
+    if not username_target:
+        username_target = username
+
+    return username, username_target, db_target, shot_target
+
+def set_flat_zeff(db, shot, run, run_target, option, username = None, username_target = None, db_target = None, shot_target = None):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+
+    # Body
+    if option == 'maximum':
+        # The maximum Zeff might be too large, the not completely ionized carbon close to the LCFS might lead to a negative main ion density
+        # Reducing the value in this case
+        Zeff = zeff_set_maximum(Zeff)
+    elif option == 'minimum':
+        Zeff = zeff_set_minimum(Zeff)
+    elif option == 'median':
+        Zeff = zeff_set_median(Zeff)
+    else:
+        print('Option not recognized, aborting. This should not happen')
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    def zeff_set_maximum(Zeff):
+        Zeff = np.where(Zeff < 4.5, np.max(Zeff), 4.5)
+        return Zeff
+
+    def zeff_set_minimum(Zeff):
+        Zeff = np.where(Zeff > 1.02, np.min(Zeff), 1.02)
+        return Zeff
+
+    #To be tested, might not be the correct syntax
+    def zeff_set_median(Zeff):
+        Zeff = (np.min(Zeff) + np.max(Zeff))/2
+        return Zeff
+
+
 # Name changed. Need to change it in prepare input
-def set_flat_Zeff(db, shot, run, run_target, option, username = ''):
+def set_flat_Zeff_old(db, shot, run, run_target, option, username = ''):
 
     '''
 
@@ -1886,7 +2012,46 @@ def set_flat_Zeff(db, shot, run, run_target, option, username = ''):
     core_profiles.put(db_entry = data_entry_target)
     data_entry_target.close()
 
-def correct_zeff(db, shot, run, db_target, shot_target, run_target, username = '', username_target = ''):
+def correct_numpy_Zeff(Zeff):
+    Zeff = np.where(Zeff > 1, Zeff, 1.02)
+    Zeff = np.where(Zeff < 4.5, Zeff, 4.5)
+    return Zeff
+
+
+def correct_zeff(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    '''
+
+    Sets Zeff = 1.02 where Zeff falls below 1 for whatever reason (can happen if experimental data is taken automatically and not properly c
+hecked). Also, values greater than
+4.5 are clumped (to avoid negative main ion density). The choice of 4.5 can be improved, itś made under the hypotesis that the impurity is c
+arbon. Higher than this and it migh
+t die close to the boundaries.
+    Uses duqtools to do it
+
+    '''
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+
+    # Body
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff corrected')
+
+def correct_zeff_old(db, shot, run, db_target, shot_target, run_target, username = '', username_target = ''):
 
     '''
 
@@ -1918,7 +2083,48 @@ t die close to the boundaries.
 
 # WORK IN PROGRESS
 
+
 def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None):
+
+    '''
+
+    Sets a parabolic Zeff profile
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+
+    # Body
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    average_zeff = []
+    for profile in Zeff:
+        average_zeff.append(np.average(profile))
+
+    for index in range(np.shape(Zeff)[0]):
+        norm = zeff_param * (average_zeff[index]-1)/2
+        Zeff[index] = average_zeff[index] + norm/2 - norm * np.sqrt(1-rho_tor_norm[index])
+
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff turned parabolic')
+
+
+def set_parabolic_zeff_old(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None):
 
     '''
 
@@ -1967,6 +2173,45 @@ def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = No
 
 def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
 
+    '''
+    Sets a peaked Zeff profiles, trying to (roughly!) keep Zeff the same
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+
+    # Body
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    average_zeff = []
+    for profile in Zeff:
+        average_zeff.append(np.average(profile))
+
+    for index in range(np.shape(Zeff)[0]):
+        norm = zeff_param * (average_zeff[index]-1)/2
+        Zeff[index] = average_zeff[index] - norm/2 + norm * np.sqrt(1-rho_tor_norm[index])
+
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff turned parabolic')
+
+
+def set_peaked_zeff_profile_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
+
     if not username:
         username=getpass.getuser()
     if not db_target:
@@ -2007,7 +2252,50 @@ def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_ta
 
 # ----------------------------- WORK IN PROGRESS ----------------------------------
 
-def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
+def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose =
+ False, zeff_param = 1):
+
+    '''
+    Sets a peaked Zeff profiles, trying to (roughly!) keep Zeff the same. The profile is evolved in time to be flat at the beginning and gets peaked later
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+    time_cp = zeff['time'].to_numpy()
+
+    # Body
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    average_zeff = []
+    for profile in Zeff:
+        average_zeff.append(np.average(profile))
+
+    # Very early want a flat zeff profile, they start to get out slightly later
+    for index in range(np.shape(Zeff)[0]):
+        zeff_param = np.where(time_cp < 0.05, zeff_param*20*time_cp, zeff_param)
+        norm = zeff_param * (average_zeff[index]-1)/2
+        Zeff[index] = average_zeff[index] - norm[index]/2 + norm[index] * np.sqrt(1-rho_tor_norm[index])
+
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff turned parabolic')
+
+
+def set_peaked_ev_zeff_profile_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
 
     if not username:
         username=getpass.getuser()
@@ -2054,8 +2342,42 @@ def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
-
 def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None):
+
+    '''
+    Sets a flat Zeff profile but with the separatrix lower with a gaussian function. Might be better numerically for initialization.
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+    time_cp = zeff['time'].to_numpy()
+
+    # Body
+    Zeff = correct_numpy_Zeff(Zeff)
+    for i in np.arange(len(time_cp)):
+        rho_profile = rho_tor_norm[i]
+        Zeff[i] = zeff_param-(zeff_param-1)/2*np.exp(-(5*rho_profile-5)**2)
+
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff turned parabolic')
+
+
+def set_low_edge_zeff_old(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None):
 
     if not username:
         username=getpass.getuser()
@@ -2081,7 +2403,78 @@ def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = Non
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
 
+# WORK IN PROGRESS LATEST #3.31.2023
+
+def find_indexes_start_end(ip, time_eq, zeff_param, time_cp):
+
+    if not zeff_param:
+        index_start_ft_eq, index_end_ft_eq = identify_flattop_ip(ip, time_eq)
+    else:
+        #The rationale behind specifying a value is that zeff might decrease more or less independently from the current (if it depends on other variables)
+        index_start_ft_eq = np.abs(time_eq - zeff_param).argmin(0)
+        index_end_ft_eq = len(time_eq) - 1
+
+    #Need the indexes for core_profile
+    index_start_ft = np.abs(time_cp - time_eq[index_start_ft_eq]).argmin(0)
+    index_end_ft = np.abs(time_cp - time_eq[index_end_ft_eq]).argmin(0)
+
+
 def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+    time_cp = zeff['time'].to_numpy()
+
+    equilibrium = handle.get('equilibrium')
+    ip = equilibrium.to_xarray(['ip','time'])
+    Ip = ip['ip']
+    time_eq = ip['time']
+
+    # Body
+    index_start_ft, index_end_ft = find_indexes_start_end(Ip, time_eq, zeff_param, time_cp)
+
+    # The function needs to be continuous. If the parameter is not a list zeff is continuous when the ramp ends. Otherwise a value can be specified.
+    zeff_target, time_target = Zeff[index_start_ft][0], time_cp[index_start_ft]
+
+    # c is the parameter controlling how fast zeff descents after the beginning. Z0 is zeff at t=0
+    z0 = zeff_max
+    c = 10
+    b = (zeff_target-z0)/(-1+1/((c*time_target)**4+1))
+    a = -b + z0
+
+    # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+    Zeff_new, index = [], 0
+    for z in Zeff[:index_start_ft]:
+        Zeff_new.append(np.full((np.size(z)), a + b/((c*time_cp[index])**4 +1)))
+        index += 1
+
+    for z in Zeff[index_start_ft:]:
+        Zeff_new.append(Zeff[index])
+        index += 1
+
+    Zeff = np.asarray(Zeff_new)
+
+    #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+    # Especially when combined with add profiles early
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff turned parabolic')
+
+
+def set_hyperbole_zeff_old(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     if not username:
         username=getpass.getuser()
