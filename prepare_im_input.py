@@ -48,8 +48,466 @@ if imas is not None:
     if ual_version < version.parse(min_imasal_version_str):
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
+variables_summary = [
+    Variable(name='ip',
+             ids = 'summary',
+             path = 'global_quantities/ip/value',
+             dims = ['time']),
+    Variable(name='v_loop',
+             ids = 'summary',
+             path = 'global_quantities/v_loop/value',
+             dims = ['time']),
+    Variable(name='li',
+             ids = 'summary',
+             path = 'global_quantities/li/value',
+             dims = ['time']),
+    Variable(name='li_mhd',
+             ids = 'summary',
+             path = 'global_quantities/li_mhd/value',
+             dims = ['time']),
+    Variable(name='energy_diamagnetic',
+             ids = 'summary',
+             path = 'global_quantities/energy_diamagnetic/value',
+             dims = ['time']),
+    Variable(name='energy_mhd',
+             ids = 'summary',
+             path = 'global_quantities/energy_mhd/value',
+             dims = ['time']),
+    Variable(name='energy_thermal',
+             ids = 'summary',
+             path = 'global_quantities/energy_thermal/value',
+             dims = ['time']),
+    Variable(name='beta_pol',
+             ids = 'summary',
+             path = 'global_quantities/beta_pol/value',
+             dims = ['time']),
+    Variable(name='beta_pol_mhd',
+             ids = 'summary',
+             path = 'global_quantities/beta_pol_mhd/value',
+             dims = ['time']),
+    Variable(name='beta_tor_norm',
+             ids = 'summary',
+             path = 'global_quantities/beta_tor_norm/value',
+             dims = ['time']),
+    Variable(name='power_radiated',
+             ids = 'summary',
+             path = 'global_quantities/power_radiated/value',
+             dims = ['time']),
+    Variable(name='volume',
+             ids = 'summary',
+             path = 'global_quantities/volume/value',
+             dims = ['time']),
+    Variable(name='neutron flux total',
+             ids = 'summary',
+             path = 'fusion/neutron_fluxes/total/value',
+             dims = ['time']),
+    Variable(name='power_nbi',
+             ids = 'summary',
+             path = 'heating_current_drive/power_nbi/value',
+             dims = ['time']),
+    Variable(name='power_ic',
+             ids = 'summary',
+             path = 'heating_current_drive/power_ic/value',
+             dims = ['time']),
+    Variable(name='power_ec',
+             ids = 'summary',
+             path = 'heating_current_drive/power_ec/value',
+             dims = ['time']),
+    Variable(name='power_lh',
+             ids = 'summary',
+             path = 'heating_current_drive/power_lh/value',
+             dims = ['time'])
+]
+
+variable_summary_time = [
+    Variable(name='time',
+             ids = 'summary',
+             path = 'time',
+             dims = ['time'])
+]
+
+variables_core_profiles = [
+    Variable(name='r0',
+             ids = 'core_profiles',
+             path = 'vacuum_toroidal_field/r0',
+             dims = []),
+    Variable(name='b0',
+             ids = 'core_profiles',
+             path = 'vacuum_toroidal_field/b0',
+             dims = ['time']),
+    Variable(name='q',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/q',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='ne thermal',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/electrons/density_thermal',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='ne',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/electrons/density',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='v tor',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/electrons/velocity_tor',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='pressure thermal',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/electrons/pressure_thermal',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='t_i_ave',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/t_i_average',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='zeff',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/zeff',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='rho tor',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/grid/rho_tor',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='rho pol norm',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/grid/rho_tor_norm',
+             dims = ['time', 'rho_tor_norm_core_profiles']),
+    Variable(name='rho tor norm time',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/grid/rho_tor_norm',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='ion temperature',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/temperature',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='ni thermal',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/density_thermal',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='ni',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/density',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='pressure thermal',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/pressure_thermal',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='pressure',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/pressure',
+             dims = ['time', 'ion', 'rho_tor_norm']),
+    Variable(name='ip',
+             ids = 'core_profiles',
+             path = 'global_quantities/ip',
+             dims = ['time']),
+    Variable(name='v loop',
+             ids = 'core_profiles',
+             path = 'global_quantities/v_loop',
+             dims = ['time']),
+    Variable(name='li 3',
+             ids = 'core_profiles',
+             path = 'global_quantities/li_3',
+             dims = ['time']),
+    Variable(name='energy diamagnetic',
+             ids = 'core_profiles',
+             path = 'global_quantities/energy_diamagnetic',
+             dims = ['time']),
+    Variable(name='z ion',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/z_ion',
+             dims = ['time', 'ion']),
+    Variable(name='multiple states flag',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/multiple_states_flag',
+             dims = ['time', 'ion']),
+    Variable(name='label',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/label',
+             dims = ['time', 'ion']),
+    Variable(name='ion a',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/element/*/a',
+             dims = ['time', 'ion', 'element']),
+    Variable(name='ion z n',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/element/*/z_n',
+             dims = ['time', 'ion', 'element']),
+    Variable(name='ion atoms n',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/ion/*/element/*/atoms_n',
+             dims = ['time', 'ion', 'element'])
+]
+
+variable_core_profiles_time = [
+    Variable(name='time',
+             ids = 'core_profiles',
+             path = 'time',
+             dims = ['time'])
+]
+
+variable_core_profiles_rho = [
+    Variable(name='rho_tor_norm',
+             ids = 'core_profiles',
+             path = 'profiles_1d/0/grid/rho_tor_norm',
+             dims = ['rho_tor_norm'])
+]
+
+variables_equilibrium = [
+    Variable(name='r0',
+             ids = 'equilibrium',
+             path = 'vacuum_toroidal_field/r0',
+             dims = []),
+    Variable(name='b0',
+             ids = 'equilibrium',
+             path = 'vacuum_toroidal_field/b0',
+             dims = ['time']),
+    Variable(name='psi',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/psi',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='phi',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/phi',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='f',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/f',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='q',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/q',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='pressure',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/pressure',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='rho tor',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/rho_tor',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='rho tor norm',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/rho_tor_norm',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='area',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/area',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='volume',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_1d/volume',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='r',
+             ids = 'equilibrium',
+             path = 'time_slice/*/boundary/outline/r',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='z',
+             ids = 'equilibrium',
+             path = 'time_slice/*/boundary/outline/z',
+             dims = ['time', 'rho_tor_norm']),
+    Variable(name='ip',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/ip',
+             dims = ['time']),
+    Variable(name='li 3',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/li_3',
+             dims = ['time']),
+    Variable(name='beta pol',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/beta_pol',
+             dims = ['time']),
+    Variable(name='beta tor',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/beta_tor',
+             dims = ['time']),
+    Variable(name='magnetic axis r',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/magnetic_axis/r',
+             dims = ['time']),
+    Variable(name='magnetic axis z',
+             ids = 'equilibrium',
+             path = 'time_slice/*/global_quantities/magnetic_axis/z',
+             dims = ['time']),
+    Variable(name='dim1',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_2d/*/grid/dim1',
+             dims = ['time','profile_2d','dim1']),
+    Variable(name='dim2',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_2d/*/grid/dim2',
+             dims = ['time','profile_2d','dim2']),
+    Variable(name='psi 2d',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_2d/*/psi',
+             dims = ['time','profile_2d','dim1','dim2']),
+    Variable(name='grid name',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_2d/*/grid_type/name',
+             dims = ['time','profile_2d']),
+    Variable(name='grid index',
+             ids = 'equilibrium',
+             path = 'time_slice/*/profiles_2d/*/grid_type/index',
+             dims = ['time','profile_2d'])
+]
+
+variable_equilibrium_time = [
+    Variable(name='time',
+             ids = 'equilibrium',
+             path = 'time',
+             dims = ['time'])
+]
+
+variable_equilibrium_rho = [
+    Variable(name='rho_tor_norm',
+             ids = 'equilibrium',
+             path = 'time_slice/0/profiles_1d/rho_tor_norm',
+             dims = ['rho_tor_norm'])
+]
+
+def construct_variables_lists(ids_names_to_extract):
+
+    variables, variables_time, variables_rho = {}, {}, {}
+    if 'summary' in ids_names_to_extract:
+        variables['summary'] = variables_summary
+        variables_time['summary'] = variable_summary_time
+    if 'core_profiles' in ids_names_to_extract:
+        variables['core_profiles'] = variables_core_profiles
+        variables_time['core_profiles'] = variable_core_profiles_time
+        variables_rho['core_profiles'] = variable_core_profiles_rho
+    if 'equilibrium' in ids_names_to_extract:
+        variables['equilibrium'] = variables_equilibrium
+        variables_time['equilibrium'] = variable_equilibrium_time
+        variables_rho['equilibrium'] = variable_equilibrium_rho
+
+    return variables, variables_time, variables_rho
+
+def extract_integrated_modelling(ids_names_to_extract, username, db, shot, run):
+
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    dataset_integrated_modelling = {}
+    variables, variables_time, variables_rho = construct_variables_lists(ids_names_to_extract)
+
+    # STILL NOT WORKING
+    single_dataset = handle.get_variables([variables['core_profiles'][0], variables_time['core_profiles'][0], variables_rho['core_profiles'][0]])
+
+    for key in variables:
+        dataset = xr.Dataset()
+        time = handle.get_variables(variables_time[key])
+
+        for variable in variables[key]:
+            try:
+                if key in variables_rho.keys(): 
+                    single_dataset = handle.get_variables([variable, variables_time[key][0], variables_rho[key][0]])
+                else:
+                    single_dataset = handle.get_variables([variable, variables_time[key][0]])
+                dataset = xr.merge([dataset, single_dataset])
+            except (ValueError, duqtools.ids._mapping.EmptyVarError):
+                pass
+
+        dataset_integrated_modelling[key] = dataset
+
+    return dataset_integrated_modelling
+
+
+def select_interval(ds, ids_list, time_start, time_end):
+
+    # Could be only one for loop
+    for ids_key in ids_list:
+
+        ds[ids_key] = ds[ids_key].where(ds[ids_key].time>time_start, drop = True)
+        ds[ids_key] = ds[ids_key].where(ds[ids_key].time<time_end, drop = True)
+
+        #ds[ids_key] = ds[ids_key].sel(ds[ids_key]time_summary=0.0300001)
+
+        #dimx = self.ds.dimx.where(self.ds.normni.sel(nions=0) > normni_max, drop = True).values
+
+        #index_time_start = np.abs(time - time_start).argmin(0)
+        #index_time_end = np.abs(time - time_end).argmin(0)
+
+        
+    return ds
+
+def average_traces_profile(ds):
+
+    for ids_key in ds:
+        print(ds[ids_key])
+        time = {}
+        #print(ds[ids_key].time.values)
+        time['time'] = np.average(ds[ids_key].time)
+        #print(time['time'])
+        ds[ids_key] = ds[ids_key].mean(dim='time')
+
+        ds[ids_key] = ds[ids_key].fillna(0)
+        ds[ids_key] = ds[ids_key].where(ds[ids_key] != np.inf, 0, drop = False)
+        ds[ids_key] = ds[ids_key].where(ds[ids_key] != -np.inf, 0, drop = False)
+
+        ds[ids_key] = ds[ids_key].assign_coords(coords=time)
+        ds[ids_key] = ds[ids_key].expand_dims({'time':1})
+        print(ds[ids_key])
+        #exit()
+
+
+        '''
+        for key in self.ids_dict['traces']:
+            if len(self.ids_dict['traces'][key]) != 0:
+                if type(self.ids_dict['traces'][key][0]) == str or type(self.ids_dict['traces'][key][0]) == np.str_:
+                    # np.str_ is not recognized by imas. Signals are converted to str.
+                    self.ids_dict['traces'][key] = [str(self.ids_dict['traces'][key][0])]
+                elif type(self.ids_dict['traces'][key][0]) == int or type(self.ids_dict['traces'][key][0]) == np.int_:
+                    self.ids_dict['traces'][key] = np.asarray([int(np.average(self.ids_dict['traces'][key]))])
+                else:
+                # The value is given in an array, helps having the same structure later when I will have to deal with more values
+                    self.ids_dict['traces'][key] = np.asarray([np.average(self.ids_dict['traces'][key])])
+            else:
+                self.ids_dict['traces'][key] = np.asarray([])
+
+        # averaging profiles
+        for key in self.ids_dict['profiles_1d']:
+            if len(self.ids_dict['profiles_1d'][key][0]) != 0:
+                # Modified to eliminate infs. Might find a more elegant way to do it though
+                self.ids_dict['profiles_1d'][key][self.ids_dict['profiles_1d'][key] == np.inf] = 0
+                self.ids_dict['profiles_1d'][key][self.ids_dict['profiles_1d'][key] == -np.inf] = 0
+
+                self.ids_dict['profiles_1d'][key] = np.average(np.transpose(np.asarray(self.ids_dict['profiles_1d'][key])), axis = 1)
+                self.ids_dict['profiles_1d'][key] = np.reshape(self.ids_dict['profiles_1d'][key], (1,len(self.ids_dict['profiles_1d'][key])))
+            else:
+                self.ids_dict['profiles_1d'][key] = np.asarray([])
+
+        # averaging 2d profiles
+        for key in self.ids_dict['profiles_2d']:
+            if len(self.ids_dict['profiles_2d'][key][0]) != 0:
+                # Modified to eliminate infs. Might find a more elegant way to do it though
+                self.ids_dict['profiles_2d'][key][self.ids_dict['profiles_2d'][key] == np.inf] = 0
+                self.ids_dict['profiles_2d'][key][self.ids_dict['profiles_2d'][key] == -np.inf] = 0
+
+                self.ids_dict['profiles_2d'][key] = np.average(self.ids_dict['profiles_2d'][key], axis = 0)
+                self.ids_dict['profiles_2d'][key] = np.reshape(self.ids_dict['profiles_2d'][key], (1,np.shape(self.ids_dict['profiles_2d'][key])[0], np.shape(self.ids_dict['profiles_2d'][key])[1]))
+
+            else:
+                self.ids_dict['profiles_2d'][key] = np.asarray([])
+
+        #Selecting the first time to be the place holder. Could also select the middle time
+        for ids_key in ids_list:
+            if ids_key in self.ids_dict['time'].keys():
+                if len(self.ids_dict['time'][ids_key]) != 0:
+                    self.ids_dict['time'][ids_key] = np.asarray([self.ids_dict['time'][ids_key][0]])
+
+        self.ids_dict['extras']['b0'] = np.asarray([np.average(self.ids_dict['extras']['b0'])])
+        '''
+
+
+    return ds
+
+
+
+
+
+
+
+
 '''
 --------------- AVAILABLE FUNCTIONS: ------------------
+
 
 1 - setup_input_baserun(db, shot, run_exp, run_input, zeff_option = None, instructions = [], time_start = 0, time_end = 100)
 '''
@@ -68,7 +526,18 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     '''
 
-    username = getpass.getuser()
+    username=getpass.getuser()
+    ids_names_to_extract = ['core_profiles', 'equilibrium', 'summary']
+
+    dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run_input)
+
+    dataset_integrated_modelling = select_interval(dataset_integrated_modelling, ['equilibrium'], 0.2, 0.3)
+
+    dataset_integrated_modelling = average_traces_profile(dataset_integrated_modelling)
+
+
+    exit()
+
     '''
     #handle = ImasHandle(user = username, db = 'tcv', shot = 64862, run = 5)
     #print(handle.path())
@@ -120,9 +589,20 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # Need to import variable_dict
     #variables = variable_dict.values()
-    option = 'something'
-    set_flat_zeff(db, shot, run_input, run_start, option, username = None)
 
+    #target = ImasHandle(user = username, db = db, shot = shot, run = run_input)
+    #zeff = target.get_variables(['zeff','rho_tor_norm','time'])
+
+    #print(zeff)
+
+    #exit()
+
+    Zeff = ZeffIntegratedModelling(db, shot, run_input, run_start)
+    option = 'median'
+    #Zeff.set_flat_zeff(option)
+
+    zeff_param = 3
+    Zeff.set_parabolic_zeff(zeff_param = zeff_param)
 
     exit()
 
@@ -1884,7 +2364,7 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mds
 
 # ------------------------------- ZEFF MANIPULATION ---------------------------------
 
-def open_and_copy_handle_target(db, shot, run, run_target):
+def open_and_copy_handle_target(username, db, shot, run, run_target):
 
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
     # Test what this does
@@ -1907,6 +2387,340 @@ def set_default_entries(username, db, shot, username_target, db_target, shot_tar
         username_target = username
 
     return username, username_target, db_target, shot_target
+
+
+class ZeffIntegratedModelling:
+
+    def __init__(self, db, shot, run, run_target, username=None, username_target=None, db_target=None, shot_target=None, backend='mdsplus'):
+
+        self.db = db
+        self.shot = shot
+        self.run = run
+        self.run_target = run_target
+        self.username = username
+        self.username_target = username_target
+        self.db_target = db_target
+        self.shot_target = shot_target
+        self.set_default_entries()
+
+        ids_names_to_extract = ['core_profiles','summary']
+        dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
+        print(dataset_integrated_modelling['core_profiles'])
+        self.zeff = dataset_integrated_modelling['core_profiles']['zeff']
+        self.Zeff = dataset_integrated_modelling['core_profiles']['zeff'].to_numpy()
+        self.rho_tor_norm = dataset_integrated_modelling['core_profiles']['rho_tor_norm'].to_numpy()
+
+        print(dataset_integrated_modelling['core_profiles']['zeff'])
+        print(dataset_integrated_modelling['core_profiles']['rho_tor_norm'])
+        exit()
+
+
+        self.time_cp = dataset_integrated_modelling['core_profiles']['time core profiles'].to_numpy()
+        #self.time_eq = dataset_integrated_modelling['equilibrium']['time equilibrium'].to_numpy()
+        self.ne = dataset_integrated_modelling['core_profiles']['ne'].to_numpy()
+        self.ne_ave = np.average(self.ne, axis = 1)
+        carbon_density = dataset_integrated_modelling['core_profiles']['ni'].to_numpy()
+        self.carbon_density = carbon_density[:,1,:]
+
+        # Equilibrium variables are separated for performance reason
+        handle = ImasHandle(user = self.username, db = self.db, shot = self.shot, run = self.run)
+        equilibrium = handle.get('equilibrium')
+        ip = self.extract_equilibrium_quantity_tag('ip')
+        self.Ip = ip['ip'].to_numpy()
+        self.time_eq = ip['time equilibrium'].to_numpy()
+
+    def find_index_equilibrium_tag(self, tag):
+        index = 0
+        for variable in variables_equilibrium:
+            if variable.name == tag:
+                break
+            index += 1
+        return index
+
+    def extract_equilibrium_quantity_tag(self, tag):
+        index = self.find_index_equilibrium_tag(tag)
+        handle = ImasHandle(user = self.username, db = self.db, shot = self.shot, run = self.run)
+        equilibrium = handle.get('equilibrium')
+        quantity = handle.get_variables([variables_equilibrium[index], variable_equilibrium_time[0]])
+        return quantity
+
+    def set_default_entries(self):
+
+        if not self.username:
+            username=getpass.getuser()
+        if not self.db_target:
+            self.db_target = self.db
+        if not self.shot_target:
+            self.shot_target = self.shot
+        if not self.username_target:
+            self.username_target = self.username
+
+
+    def set_flat_zeff(self, option):
+
+        handle, target = open_and_copy_handle_target(self.username, self.db, self.shot, self.run, self.run_target)
+
+        if option == 'maximum':
+        # The maximum Zeff might be too large, the not completely ionized carbon close to the LCFS might lead to a negative main ion density
+        # Reducing the value in this case
+            self.zeff_set_flat_maximum()
+        elif option == 'minimum':
+            self.zeff_set_flat_minimum()
+        elif option == 'median':
+            self.zeff_set_flat_median()
+        else:
+            print('Option not recognized, aborting. This should not happen')
+
+        self.put_zeff()
+
+    def correct_zeff(self):
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+
+    def set_parabolic_zeff(self, zeff_param = 1):
+        self.correct_numpy_Zeff()
+
+        average_zeff = []
+        for profile in self.Zeff:
+            average_zeff.append(np.average(profile))
+
+        for index in range(np.shape(self.Zeff)[0]):
+            norm = zeff_param * (average_zeff[index]-1)/2
+            print(1-self.rho_tor_norm[index])
+            print(self.rho_tor_norm)
+            print(self.rho_tor_norm[index])
+            self.Zeff[index] = average_zeff[index] + norm/2 - norm * np.sqrt(1-self.rho_tor_norm[index])
+            print(self.Zeff[index])
+            exit()
+
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+
+    def set_hyperbolic_zeff(self, zeff_param = 0, zeff_max = 3, verbose = False):
+
+        index_start_ft, index_end_ft = find_indexes_start_end(self.Ip, self.time_eq, zeff_param, self.time_cp)
+
+        # The function needs to be continuous. If the parameter is not a list zeff is continuous when the ramp ends. Otherwise a value can be specified.
+        zeff_target, time_target = self.Zeff[index_start_ft][0], self.time_cp[index_start_ft]
+
+        # c is the parameter controlling how fast zeff descents after the beginning. Z0 is zeff at t=0
+        z0 = zeff_max
+        c = 10
+        b = (zeff_target-z0)/(-1+1/((c*time_target)**4+1))
+        a = -b + z0
+
+        # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+        Zeff_new, index = [], 0
+        for z in self.Zeff[:index_start_ft]:
+            Zeff_new.append(np.full((np.size(z)), a + b/((c*time_cp[index])**4 +1)))
+            index += 1
+
+        for z in self.Zeff[index_start_ft:]:
+            Zeff_new.append(self.Zeff[index])
+            index += 1
+
+        self.Zeff = np.asarray(Zeff_new)
+
+        #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+        # Especially when combined with add profiles early
+        self.correct_numpy_Zeff()
+
+        self.put_zeff()
+
+        print('zeff set hyperbolic')
+
+
+    def set_peaked_zeff(self, zeff_param = 1):
+        self.correct_numpy_Zeff()
+
+        average_zeff = []
+        for profile in self.Zeff:
+            average_zeff.append(np.average(profile))
+
+        for index in range(np.shape(self.Zeff)[0]):
+            norm = zeff_param * (average_zeff[index]-1)/2
+            self.Zeff[index] = average_zeff[index] - norm/2 + norm * np.sqrt(1-rho_tor_norm[index])
+
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff set peaked')
+
+    def set_peaked_ev_zeff_profile(self, verbose = False, zeff_param = 1):
+
+        '''
+        Sets a peaked Zeff profiles, trying to (roughly!) keep Zeff the same. The profile is evolved in time to be flat at the beginning and gets peaked later
+
+        '''
+
+        self.correct_numpy_Zeff()
+
+        average_zeff = []
+        for profile in self.Zeff:
+            average_zeff.append(np.average(profile))
+
+        # Very early want a flat zeff profile, they start to get out slightly later
+        for index in range(np.shape(self.Zeff)[0]):
+            zeff_param = np.where(time_cp < 0.05, zeff_param*20*time_cp, zeff_param)
+            norm = zeff_param * (average_zeff[index]-1)/2
+            self.Zeff[index] = average_zeff[index] - norm[index]/2 + norm[index] * np.sqrt(1-rho_tor_norm[index])
+
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff turned parabolic')
+
+
+    def set_low_edge_zeff(self, zeff_param = 0):
+
+        '''
+        Sets a flat Zeff profile but with the separatrix lower with a gaussian function. Might be better numerically for initialization.
+
+        '''
+
+        self.correct_numpy_Zeff()
+        for i in np.arange(len(self.time_cp)):
+            rho_profile = self.rho_tor_norm[i]
+            self.Zeff[i] = zeff_param-(zeff_param-1)/2*np.exp(-(5*rho_profile-5)**2)
+
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff set low at the edge')
+
+    def set_ip_ne_scaled_zeff(self, verbose = False):
+
+        ne = core_profiles.to_xarray(['ne','rho_tor_norm','time'])
+        ne_ave = np.average(ne['ne'], axis = 1)
+        # The steady state is identified
+        index_start_ft, index_end_ft = identify_flattop_ip(self.Ip, self.time_eq)
+
+        # Coef1 is calculated for Zeff to be continuous when the ramp up ends
+        zeff_target = self.Zeff[index_start_ft][0]
+        ip_target, ne_target = self.Ip[index_start_ft], self.ne_ave[index_start_ft]
+
+        coef2 = 3
+        coef1 = (zeff_target - 1)/(ip_target/ne_target)**coef2
+
+        # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+        Zeff_new, index = [], 0
+        for z in self.Zeff[:index_start_ft]:
+            Zeff_new.append(np.full((np.size(z)), 1 + coef1*(Ip[index]/self.ne_ave[index])**coef2))
+            index += 1
+
+        for z in self.Zeff[index_start_ft:]:
+            Zeff_new.append(self.Zeff[index])
+            index += 1
+
+        self.Zeff = np.asarray(Zeff_new)
+
+        #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+        # Especially when combined with add profiles early
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff scaled to ip')
+
+
+    def set_linear_descending_zeff(self, verbose = False):
+
+        # The steady state is identified
+        index_start_ft, index_end_ft = identify_flattop_ip(self.Ip, self.time_eq)
+        zeff_target = self.Zeff[index_start_ft][0]
+
+        # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+        Zeff_new = []
+        for index, z in enumerate(self.Zeff[:index_start_ft]):
+            Zeff_new.append(np.full((np.size(z)), -4/time_cp[index_start_ft]*time_cp[index] + 4))
+
+        for index, z in enumerate(self.Zeff[index_start_ft:]):
+            Zeff_new.append(self.Zeff[index])
+
+        self.Zeff = np.asarray(Zeff_new)
+
+        #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+        # Especially when combined with add profiles early
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff linear descent set')
+
+    def set_impurity_composition_from_flattop(self, verbose = False):
+
+        # The steady state is identified
+        index_start_ft, index_end_ft = identify_flattop_ip(self.Ip, self.time_eq)
+        zeff_target = self.Zeff[index_start_ft][0]
+
+        carbon_density_ave = np.average(self.carbon_density[index_start_ft:index_end_ft], axis = 0)
+
+        # The new carbon density is calculated on the average of the carbon density before the steady state
+        carbon_density_new = []
+
+        for carbon_dens in self.carbon_density[:index_start_ft]:
+            carbon_density_new.append(carbon_density_ave)
+
+        for carbon_dens in self.carbon_density[index_start_ft:index_end_ft]:
+            carbon_density_new.append(carbon_dens)
+
+        for carbon_dens in self.carbon_density[index_end_ft:]:
+            carbon_density_new.append(carbon_density_ave)
+
+        # Zeff is calculated normally, the charge is calculated over a profile that considers the lower charge towards the edge. This is TCV specific.
+        charge_carbon = []
+        for rho_profile in rho_tor_norm:
+            charge_carbon.append(6-2*np.exp(-(5*rho_profile-5)**2))
+        charge_carbon = np.asarray(charge_carbon).reshape(len(rho_tor_norm), len(rho_tor_norm[0]))
+
+        n_C = carbon_density_new/self.ne
+        self.Zeff = 1 + n_C*charge_carbon**2 - n_C*charge_carbon
+
+        # Still want to use a flat z_eff profile. This is imposed here
+
+        Zeff_new = []
+        for z in zeff:
+            Zeff_new.append(np.full((np.size(z)), np.average(z)))
+
+        self.Zeff = np.asarray(Zeff_new)
+
+        #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+        # Especially when combined with add profiles early
+        self.correct_numpy_Zeff()
+        self.put_zeff()
+
+        print('zeff set from flattop')
+
+
+    def zeff_set_flat_maximum(self):
+        self.Zeff = np.where(self.Zeff < 4.5, np.max(self.Zeff), 4.5)
+
+
+    def zeff_set_flat_minimum(self):
+        self.Zeff = np.where(self.Zeff > 1.02, np.min(self.Zeff), 1.02)
+
+
+    #To be tested, might not be the correct syntax
+    def zeff_set_flat_median(self):
+        self.Zeff[:] = (np.min(self.Zeff) + np.max(self.Zeff))/2
+
+
+    def put_zeff(self):
+        # Put manipulated variable back in the IDS
+        self.zeff['zeff'] = xr.DataArray(self.Zeff, coords=self.zeff.coords, dims=self.zeff.dims, attrs=self.zeff.attrs)
+        target = ImasHandle(user = self.username_target, db = self.db_target, shot = self.shot_target, run = self.run_target)
+        core_profiles = target.get('core_profiles')
+        core_profiles.write_array_in_parts('profiles_1d/*/zeff', self.zeff['zeff'])
+        core_profiles.sync(target)
+
+
+    def correct_numpy_Zeff(self):
+        self.Zeff = np.where(self.Zeff > 1, self.Zeff, 1.02)
+        self.Zeff = np.where(self.Zeff < 4.5, self.Zeff, 4.5)
+
+
+
+
 
 def set_flat_zeff(db, shot, run, run_target, option, username = None, username_target = None, db_target = None, shot_target = None):
 
@@ -2471,7 +3285,7 @@ def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, 
     core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
     core_profiles.sync(target)
 
-    print('zeff turned parabolic')
+    print('zeff set hyperbolic')
 
 
 def set_hyperbole_zeff_old(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
@@ -2553,6 +3367,62 @@ def set_hyperbole_zeff_old(db, shot, run, run_target, zeff_param = 0, zeff_max =
 
 def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+    time_cp = zeff['time'].to_numpy()
+    ne = core_profiles.to_xarray(['ne','rho_tor_norm','time'])
+    ne_ave = np.average(ne['ne'], axis = 1)
+
+    equilibrium = handle.get('equilibrium')
+    ip = equilibrium.to_xarray(['ip','time'])
+    Ip = ip['ip']
+    time_eq = ip['time']
+
+    # Body
+    # The steady state is identified
+    index_start_ft, index_end_ft = identify_flattop_ip(Ip, time_eq)
+
+    # Coef1 is calculated for Zeff to be continuous when the ramp up ends
+    zeff_target = Zeff[index_start_ft][0]
+    ip_target, ne_target = Ip[index_start_ft], ne_ave[index_start_ft]
+
+    coef2 = 3
+    coef1 = (zeff_target - 1)/(ip_target/ne_target)**coef2
+
+    # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+    Zeff_new, index = [], 0
+    for z in Zeff[:index_start_ft]:
+        Zeff_new.append(np.full((np.size(z)), 1 + coef1*(Ip[index]/ne_ave[index])**coef2))
+        index += 1
+
+    for z in Zeff[index_start_ft:]:
+        Zeff_new.append(Zeff[index])
+        index += 1
+
+    Zeff = np.asarray(Zeff_new)
+
+    #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+    # Especially when combined with add profiles early
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff scaled to ip')
+
+
+def set_ip_ne_scaled_zeff_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+
     if not username:
         username=getpass.getuser()
     if not db_target:
@@ -2603,7 +3473,62 @@ def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_targ
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
 
+def extract_variables_zeff_manipulation(username, db, shot, run, run_target):
+
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    core_profiles = handle.get('core_profiles')
+    zeff = core_profiles.to_xarray(['zeff','rho_tor_norm','time'])
+    Zeff = zeff['zeff'].to_numpy()
+    rho_tor_norm = zeff['rho_tor_norm'].to_numpy()
+    time_cp = zeff['time'].to_numpy()
+    ne = core_profiles.to_xarray(['ne','rho_tor_norm','time'])
+    ne_ave = np.average(ne['ne'], axis = 1)
+
+    equilibrium = handle.get('equilibrium')
+    ip = equilibrium.to_xarray(['ip','time'])
+    Ip = ip['ip']
+    time_eq = ip['time']
+
+    return rho_tor_norm, time_cp, time_eq, Zeff, Ip, ne, ne_ave
+
 def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    rho_tor_norm, time_cp, time_eq, Zeff, Ip, ne, ne_ave = extract_variables_zeff_manipulation(username, db, shot, run, run_target)
+
+    # Body
+    # The steady state is identified
+    index_start_ft, index_end_ft = identify_flattop_ip(Ip, time_eq)
+    zeff_target = Zeff[index_start_ft][0] 
+
+    # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
+    Zeff_new = []
+    for index, z in enumerate(Zeff[:index_start_ft]):
+        Zeff_new.append(np.full((np.size(z)), -4/time_cp[index_start_ft]*time_cp[index] + 4))
+
+    for index, z in enumerate(Zeff[index_start_ft:]):
+        Zeff_new.append(Zeff[index])
+
+    Zeff = np.asarray(Zeff_new)
+
+    #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+    # Especially when combined with add profiles early
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff linear descent set')
+
+
+def set_linear_descending_zeff_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     if not username:
         username=getpass.getuser()
@@ -2648,6 +3573,75 @@ def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot
 
 
 def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    rho_tor_norm, time_cp, time_eq, Zeff, Ip, ne, ne_ave = extract_variables_zeff_manipulation(username, db, shot, run, run_target)
+
+    # Body
+    # The steady state is identified
+    index_start_ft, index_end_ft = identify_flattop_ip(Ip, time_eq)
+    zeff_target = Zeff[index_start_ft][0]
+
+    variable = [
+        Variable(name='ion_0_density',
+                 ids = 'core_profiles',
+                 path = 'profiles_1d/1/ion/*/density',
+                 dims = ['time', 'rho_tor_norm']),
+        'rho_tor_norm',
+        'time'
+    ]
+
+    carbon_density = handle.get_variables(variable)
+    carbon_density = carbon_density['ion_0_density']
+    carbon_density_ave = np.average(carbon_density[index_start_ft:index_end_ft], axis = 0)
+
+    # The new carbon density is calculated on the average of the carbon density before the steady state
+    carbon_density_new = []
+
+    for carbon_dens in carbon_density[:index_start_ft]:
+        carbon_density_new.append(carbon_density_ave)
+
+    for carbon_dens in carbon_density[index_start_ft:index_end_ft]:
+        carbon_density_new.append(carbon_dens)
+
+    for carbon_dens in carbon_density[index_end_ft:]:
+        carbon_density_new.append(carbon_density_ave)
+
+    # Zeff is calculated normally, the charge is calculated over a profile that considers the lower charge towards the edge. This is TCV specific.
+    charge_carbon = []
+    for rho_profile in rho_tor_norm:
+        charge_carbon.append(6-2*np.exp(-(5*rho_profile-5)**2))
+    charge_carbon = np.asarray(charge_carbon).reshape(len(rho_tor_norm), len(rho_tor_norm[0]))
+
+    n_C = carbon_density_new/ne['ne']
+    Zeff = 1 + n_C*charge_carbon**2 - n_C*charge_carbon
+
+    # Still want to use a flat z_eff profile. This is imposed here
+
+    Zeff_new = []
+    for z in zeff:
+        Zeff_new.append(np.full((np.size(z)), np.average(z)))
+
+    Zeff = np.asarray(Zeff_new)
+
+    #4 should be fine as a limit for Zeff. Lower than usual due to possible lower temperature at the beginning
+    # Especially when combined with add profiles early
+    Zeff = correct_numpy_Zeff(Zeff)
+
+    # Put manipulated variable back in the IDS
+    zeff['zeff'] = xr.DataArray(Zeff, coords=zeff.coords, dims=zeff.dims, attrs=zeff.attrs)
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', zeff['zeff'])
+    core_profiles.sync(target)
+
+    print('zeff linear descent set')
+
+
+def set_impurity_composition_from_flattop_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     if not username:
         username=getpass.getuser()
@@ -2712,6 +3706,96 @@ def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target =
 
 
 def identify_flattop(db, shot, run, verbose = False):
+
+    '''
+
+    Automatically identifies the flattop. Not very robust but should work for setting Zeff correctly
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+
+    # Opens IDSs
+    handle, target = open_and_copy_handle_target(db, shot, run, run_target)
+
+    # Open Variable to be manipulated
+    rho_tor_norm, time_cp, time_eq, Zeff, Ip, ne, ne_ave = extract_variables_zeff_manipulation(username, db, shot, run, run_target)
+    core_profiles = handle.get('core_profiles')
+    summary = handle.get('summary')
+    t_i_ave = core_profiles.to_xarray(['t_i_ave','rho_tor_norm','time'])
+    te = core_profiles.to_xarray(['te','rho_tor_norm','time'])
+
+    core_profiles = open_and_get_core_profiles(db, shot, run, username)
+    summary = open_and_get_summary(db, shot, run, username)
+
+    variable = [
+        Variable(name='ip',
+                 ids = 'summary',
+                 path = 'global_quantities.ip.value',
+                 dims = ['time']),
+        'rho_tor_norm',
+        'time'
+    ]
+
+    ip = handle.get_variables(variable)
+    Ip = ip['ip']
+
+    if verbose:
+        plt.subplot(1,1,1)
+        plt.plot(time_cp, ne['ne'][:,0], 'c-', label = 'Te')
+        plt.plot(time_cp, t_i_ave['t_i_ave'][:,0], 'r-', label = 'Ti')
+        plt.legend()
+        plt.show()
+
+#    Searching for start and stop of the flattop for various variables. The the start of the flattop is set not to be on the first index
+
+    time_start_ft_te, time_end_ft_te = identify_flattop_variable(te, time_cp)
+    time_start_ft_ti, time_end_ft_ti = identify_flattop_variable(t_i_ave, time_cp)
+
+# Removing nan from the ip array. Need to also remove the corresponding times. ip and zeff might be useful for the future or to find mistakes
+
+    ip_map = np.where(np.isnan(Ip), False, True)
+
+    Ip = Ip[ip_map]
+    ip_time = ip[ip_map]
+
+    time_start_ft_zeff, time_end_ft_zeff = identify_flattop_variable(Zeff, time_cp)
+    time_start_ft_ip, time_end_ft_ip = identify_flattop_variable(ip, ip_time)
+    time_start_ft_ne, time_end_ft_ne = identify_flattop_variable(ne['ne'], time_cp)
+
+    if verbose:
+        print('flattop start and end for Te are ')
+        print(time_start_ft_te, time_end_ft_te)
+        print('flattop start and end for Ti are ')
+        print(time_start_ft_ti, time_end_ft_ti)
+        print('flattop start and end for zeff are ')
+        print(time_start_ft_zeff, time_end_ft_zeff)
+        print('flattop start and end for ne are ')
+        print(time_start_ft_ne, time_end_ft_ne)
+
+# The intervals should cross somewhere. Then minimum and maximum are taken. If they do not, an average of start and finish is taken.
+# Still kinda ugly but should work. Might want to identify better methods later
+
+    if time_end_ft_te <= time_start_ft_ti or time_end_ft_ti <= time_start_ft_te:
+        time_start_ft = (time_start_ft_te + time_start_ft_ti)/2
+        time_end_ft = (time_end_ft_te + time_end_ft_ti)/2
+    else:
+        time_start_ft = max(time_start_ft_te, time_start_ft_ti)
+        time_end_ft = min(time_end_ft_te, time_end_ft_ti)
+
+    print('flattop starts and ends at:')
+    print(time_start_ft, time_end_ft)
+
+# Might find a better way to include the current start and end of the flattop
+
+    print('current flattop is')
+    print(time_start_ft_ip, time_end_ft_ip)
+    print('it should be similar. If not, there might be a problem')
+
+    return(time_start_ft, time_end_ft)
+
+
+def identify_flattop_old(db, shot, run, verbose = False):
 
     '''
 
@@ -2854,6 +3938,23 @@ def identify_flattop_ip(ip, time):
 
     return(index_flattop_begin, index_flattop_end)
 
+
+def check_ion_number(db, shot, run):
+
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    variable = [
+        Variable(name='ions',
+                 ids = 'core_profiles',
+                 path = 'profiles_1d/ion/*',
+                 dims = ['time', 'rho_tor_norm']),
+        'rho_tor_norm',
+        'time'
+    ]
+
+    ions = handle.get_variables(variable)
+    ions = ions['ions']
+
+    ion_number = len(ions)
 
 def check_ion_number(db, shot, run):
 
