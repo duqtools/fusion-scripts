@@ -24,7 +24,7 @@ from duqtools.api import ImasHandle
 from duqtools.api import Variable
 from duqtools.api import rebase_on_time
 
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 #from matplotlib.animation import FuncAnimation
 from IPython import display
@@ -174,7 +174,7 @@ variables_core_profiles = [
     Variable(name='rho tor norm time',
              ids = 'core_profiles',
              path = 'profiles_1d/*/grid/rho_tor_norm',
-             dims = ['time', 'ion', 'rho_tor_norm']),
+             dims = ['time', 'rho_tor_norm']),
     Variable(name='ion temperature',
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/temperature',
@@ -284,7 +284,7 @@ variables_equilibrium = [
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/rho_tor',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='rho tor norm',
+    Variable(name='rho tor norm time',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/rho_tor_norm',
              dims = ['time', 'rho_tor_norm']),
@@ -387,7 +387,6 @@ def extract_integrated_modelling(ids_names_to_extract, username, db, shot, run):
     dataset_integrated_modelling = {}
     variables, variables_time, variables_rho = construct_variables_lists(ids_names_to_extract)
 
-    # STILL NOT WORKING
     single_dataset = handle.get_variables([variables['core_profiles'][0], variables_time['core_profiles'][0], variables_rho['core_profiles'][0]])
 
     for key in variables:
@@ -427,82 +426,131 @@ def select_interval(ds, ids_list, time_start, time_end):
         
     return ds
 
-def average_traces_profile(ds):
+def average_integrated_modelling_duqtools(ds):
 
     for ids_key in ds:
-        print(ds[ids_key])
         time = {}
-        #print(ds[ids_key].time.values)
         time['time'] = np.average(ds[ids_key].time)
-        #print(time['time'])
+
+        if 'rho_tor_norm' in ds[ids_key].coords:
+            ds[ids_key] = fit_x(ds[ids_key])
+
         ds[ids_key] = ds[ids_key].mean(dim='time')
 
         ds[ids_key] = ds[ids_key].fillna(0)
+        # Still to be tested with infs
         ds[ids_key] = ds[ids_key].where(ds[ids_key] != np.inf, 0, drop = False)
         ds[ids_key] = ds[ids_key].where(ds[ids_key] != -np.inf, 0, drop = False)
 
         ds[ids_key] = ds[ids_key].assign_coords(coords=time)
         ds[ids_key] = ds[ids_key].expand_dims({'time':1})
-        print(ds[ids_key])
-        #exit()
-
-
-        '''
-        for key in self.ids_dict['traces']:
-            if len(self.ids_dict['traces'][key]) != 0:
-                if type(self.ids_dict['traces'][key][0]) == str or type(self.ids_dict['traces'][key][0]) == np.str_:
-                    # np.str_ is not recognized by imas. Signals are converted to str.
-                    self.ids_dict['traces'][key] = [str(self.ids_dict['traces'][key][0])]
-                elif type(self.ids_dict['traces'][key][0]) == int or type(self.ids_dict['traces'][key][0]) == np.int_:
-                    self.ids_dict['traces'][key] = np.asarray([int(np.average(self.ids_dict['traces'][key]))])
-                else:
-                # The value is given in an array, helps having the same structure later when I will have to deal with more values
-                    self.ids_dict['traces'][key] = np.asarray([np.average(self.ids_dict['traces'][key])])
-            else:
-                self.ids_dict['traces'][key] = np.asarray([])
-
-        # averaging profiles
-        for key in self.ids_dict['profiles_1d']:
-            if len(self.ids_dict['profiles_1d'][key][0]) != 0:
-                # Modified to eliminate infs. Might find a more elegant way to do it though
-                self.ids_dict['profiles_1d'][key][self.ids_dict['profiles_1d'][key] == np.inf] = 0
-                self.ids_dict['profiles_1d'][key][self.ids_dict['profiles_1d'][key] == -np.inf] = 0
-
-                self.ids_dict['profiles_1d'][key] = np.average(np.transpose(np.asarray(self.ids_dict['profiles_1d'][key])), axis = 1)
-                self.ids_dict['profiles_1d'][key] = np.reshape(self.ids_dict['profiles_1d'][key], (1,len(self.ids_dict['profiles_1d'][key])))
-            else:
-                self.ids_dict['profiles_1d'][key] = np.asarray([])
-
-        # averaging 2d profiles
-        for key in self.ids_dict['profiles_2d']:
-            if len(self.ids_dict['profiles_2d'][key][0]) != 0:
-                # Modified to eliminate infs. Might find a more elegant way to do it though
-                self.ids_dict['profiles_2d'][key][self.ids_dict['profiles_2d'][key] == np.inf] = 0
-                self.ids_dict['profiles_2d'][key][self.ids_dict['profiles_2d'][key] == -np.inf] = 0
-
-                self.ids_dict['profiles_2d'][key] = np.average(self.ids_dict['profiles_2d'][key], axis = 0)
-                self.ids_dict['profiles_2d'][key] = np.reshape(self.ids_dict['profiles_2d'][key], (1,np.shape(self.ids_dict['profiles_2d'][key])[0], np.shape(self.ids_dict['profiles_2d'][key])[1]))
-
-            else:
-                self.ids_dict['profiles_2d'][key] = np.asarray([])
-
-        #Selecting the first time to be the place holder. Could also select the middle time
-        for ids_key in ids_list:
-            if ids_key in self.ids_dict['time'].keys():
-                if len(self.ids_dict['time'][ids_key]) != 0:
-                    self.ids_dict['time'][ids_key] = np.asarray([self.ids_dict['time'][ids_key][0]])
-
-        self.ids_dict['extras']['b0'] = np.asarray([np.average(self.ids_dict['extras']['b0'])])
-        '''
-
 
     return ds
 
 
+def remove_point_rho_tor_norm(rho_tor_norm_stand):
+
+    distances = []
+    for p, e in zip(rho_tor_norm_stand, rho_tor_norm_stand[1:]):
+        distances.append(abs(p-e))
+
+    d_min = min(distances)
+
+    for ip, p, e in zip(np.arange(np.shape(rho_tor_norm_stand)[0]), rho_tor_norm_stand, rho_tor_norm_stand[1:]):
+        if abs(p-e) == d_min:
+            rho_tor_norm_stand = np.delete(rho_tor_norm_stand, ip)
+            break
+
+    return rho_tor_norm_stand, d_min
 
 
+def create_stand_rho_tor_norm(rho_tor_norm_time, len_rho_tor_norm, grid_option = 'keep length', distance = 0.0001):
+
+    rho_tor_norm_stand = np.sort(rho_tor_norm_time.values, axis = None)
+
+    if grid_option == 'distance':
+        d_min = 0
+        while(d_min<distance):
+            rho_tor_norm_stand, d_min = remove_point_rho_tor_norm(rho_tor_norm_stand)
+
+    elif grid_option == 'keep length':
+        while(np.shape(rho_tor_norm_stand)[0] != len_rho_tor_norm):
+            rho_tor_norm_stand, d_min = remove_point_rho_tor_norm(rho_tor_norm_stand)
+
+    elif grid_option == 'all':
+        d_min = 0
+        while(d_min<1.0e-10):
+            rho_tor_norm_stand, d_min = remove_point_rho_tor_norm(rho_tor_norm_stand)
+
+    return rho_tor_norm_stand
 
 
+def fit_x(ds_ids):
+
+    rho_tor_norm_stand = create_stand_rho_tor_norm(ds_ids['rho tor norm time'], ds_ids.dims['rho_tor_norm'], grid_option = 'keep length', distance = 0.0001)
+
+    ds_ids_new = copy.deepcopy(ds_ids)
+
+    # This purges everything that has a rho_tor_norm dimension
+    ds_ids_new = ds_ids_new.drop_dims('rho_tor_norm')
+
+    # Create a new standardize rho tor norm to allow interpolation in time
+    coord_rho_tor_norm_stand = {}
+    coord_rho_tor_norm_stand['rho_tor_norm'] = rho_tor_norm_stand
+    ds_ids_new = ds_ids_new.assign_coords(coord_rho_tor_norm_stand)
+
+    for variable in ds_ids:
+        if 'rho_tor_norm' in ds_ids[variable].coords:
+            variable_new = np.asarray([])
+            dims_variable = [ds_ids[variable].sizes[dim_variable] for dim_variable in ds_ids[variable].dims]
+            dims_variable_names = [dim_variable for dim_variable in ds_ids[variable].dims]
+            coords_variable = [coord_variable for coord_variable in ds_ids[variable].coords]
+
+            dims_variable_stripped = copy.deepcopy(dims_variable_names)
+            dims_variable_stripped.remove('rho_tor_norm')
+
+            # Handling the case when there dimensions other than time
+            dim_reshape = 1
+            for dim_variable_stripped in dims_variable_stripped:
+                dim_reshape *= ds_ids[variable].sizes[dim_variable_stripped]
+
+            dim_reshape_rho_tor_norm = dim_reshape/ds_ids[variable].sizes['time']
+            flatten_variable = ds_ids[variable].values.reshape(dim_reshape, ds_ids[variable].sizes['rho_tor_norm'])
+
+            # Build rho tor norm time so it fits with the variable when interpolating
+            rho_tor_norm_time = np.asarray([])
+            for rho_tor_norm_time_slice in ds_ids['rho tor norm time']:
+                for i in np.arange(dim_reshape_rho_tor_norm):
+                    rho_tor_norm_time = np.hstack((rho_tor_norm_time, rho_tor_norm_time_slice))
+
+            rho_tor_norm_time = rho_tor_norm_time.reshape(dim_reshape, ds_ids[variable].sizes['rho_tor_norm'])
+
+            for slice_rho_tor_norm, slice_variable in zip(rho_tor_norm_time, flatten_variable):
+                slice_new = fit_and_substitute(slice_rho_tor_norm, rho_tor_norm_stand, slice_variable)
+                variable_new = np.hstack((variable_new, slice_new))
+
+            variable_new = np.reshape(variable_new, dims_variable)
+            ds_ids_new[variable] = (dims_variable_names, variable_new)
+
+    return ds_ids_new
+
+
+# Rebasing the profiles in time
+def rebase_integrated_modelling_duqtools(ds, changing_idss, time_new):
+    ds_new = {}
+    for changing_ids in changing_idss:
+        ds[changing_ids] = fit_x(ds[changing_ids])
+
+        # Interpolate over time here
+        ds_new[changing_ids] = ds[changing_ids].interp(time=time_new, kwargs={'fill_value':'extrapolate'})
+
+        # test on ti
+        #index_time = np.abs(ds[changing_ids].time.values - time_new[1]).argmin(0)
+        #ds_new.isel(time=1).plot.scatter(x='rho_tor_norm',y='t_i_ave')
+        #ds[changing_ids].isel(time=index_time).plot.scatter(x='rho_tor_norm',y='t_i_ave')        
+        #plt.show()
+
+    return ds_new
 
 
 '''
@@ -533,7 +581,10 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     dataset_integrated_modelling = select_interval(dataset_integrated_modelling, ['equilibrium'], 0.2, 0.3)
 
-    dataset_integrated_modelling = average_traces_profile(dataset_integrated_modelling)
+    #rebase_integrated_modelling_duqtools(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
+    rebase_integrated_modelling_duqtools(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
+
+    dataset_integrated_modelling = average_integrated_modelling_duqtools(dataset_integrated_modelling)
 
 
     exit()
@@ -4619,6 +4670,85 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     ids_data.fill_ids_struct()
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+
+
+def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
+
+    set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles','summary']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
+
+    
+
+    ne_peaking_0 = extra_early_options['ne peaking 0']
+    te_peaking_0 = extra_early_options['te peaking 0']
+    ti_peaking_0 = extra_early_options['ti peaking 0']
+    electron_density_option = extra_early_options['electron density option']
+    ion_density_option = extra_early_options['ion density option']
+    electron_temperature_option = extra_early_options['electron temperature option']
+    ion_temperature_option = extra_early_options['ion temperature option']
+
+    old_times_core_profiles = dataset_im['core_profiles'].time
+    old_times_summary = dataset_im['summary'].time
+
+    new_times_core_profiles = old_times_core_profiles[:]
+
+    # Go backwards with the same timestep
+    while new_times_core_profiles[0] > 0.01:
+        new_times_core_profiles = np.insert(new_times_core_profiles, 0, new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0]))
+
+    len_added_times = len(new_times_core_profiles) - len(old_times_core_profiles)
+
+    # The grid needs to be calculated before the first profile since the first grid might change and this can create problems
+
+    x_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'])[1]
+    time_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'])[0]
+    first_rho_norm_old = dataset_im['core_profiles']['rho tor norm time'][0]
+
+    # Calculate the last rho_tor (non normalized) to extrapolate the last of the rho_tor for the first time step. The rest will be equidistant
+    last_radial_rho = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, dataset_im['core_profiles']['rho tor'][:,-1])[0]
+    first_rho_tor_norm = np.arange(x_dim)/x_dim
+    first_rho_tor = first_rho_tor_norm*last_radial_rho
+
+    # WORKING ON NOW
+
+    first_rho_tor_norm = np.arange(x_dim)/x_dim
+    first_rho_tor = first_rho_tor_norm*last_radial_rho
+    # This is just to make the formulas later readable
+    x = first_rho_tor_norm
+
+    # The grid should not be back extrapolated freely (causes problems) but should be back extrapolated starting from a regularly spaced grid
+    # Can probably be incorporated in the later code
+    old_rhos_norm = ids_dict['profiles_1d']['grid.rho_tor_norm'][:]
+    old_rhos_norm = np.insert(old_rhos_norm, 0, first_rho_tor_norm, axis = 0)
+    old_times_core_profiles = np.insert(old_times_core_profiles, 0, 0.0)
+
+    new_rhos_norm = np.asarray([])
+    for i in np.arange(x_dim):
+        if np.size(new_rhos_norm) == 0:
+            new_rhos_norm = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_rhos_norm[:,i])
+        else:
+            new_rhos_norm = np.hstack((new_rhos_norm, fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_rhos_norm[:,i])))
+
+    new_rhos_norm = new_rhos_norm.reshape(x_dim, len(new_times_core_profiles))
+    new_rhos_norm = np.transpose(new_rhos_norm)
+
+    old_rhos = ids_dict['profiles_1d']['grid.rho_tor'][:]
+    old_rhos = np.insert(old_rhos, 0, first_rho_tor, axis = 0)
+
+    new_rhos = np.asarray([])
+    for i in np.arange(x_dim):
+        if np.size(new_rhos) != 0:
+            new_rhos = np.hstack((new_rhos, fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_rhos[:,i])))
+        else:
+            new_rhos = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_rhos[:,i])
+
+    new_rhos = new_rhos.reshape(x_dim, len(new_times_core_profiles))
+    new_rhos = np.transpose(new_rhos)
+
+    # WORKING ON NOW
+
+
 
 def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
 
