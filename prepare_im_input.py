@@ -97,6 +97,10 @@ variables_summary = [
              ids = 'summary',
              path = 'global_quantities/volume/value',
              dims = ['time']),
+    Variable(name='line ave ne',
+             ids = 'summary',
+             path = 'line_average/n_e/value',
+             dims = ['time']),
     Variable(name='neutron flux total',
              ids = 'summary',
              path = 'fusion/neutron_fluxes/total/value',
@@ -155,6 +159,10 @@ variables_core_profiles = [
              ids = 'core_profiles',
              path = 'profiles_1d/*/electrons/pressure_thermal',
              dims = ['time', 'rho_tor_norm']),
+    Variable(name='te',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/electrons/temperature',
+             dims = ['time', 'rho_tor_norm']),
     Variable(name='t_i_ave',
              ids = 'core_profiles',
              path = 'profiles_1d/*/t_i_average',
@@ -187,7 +195,7 @@ variables_core_profiles = [
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/density',
              dims = ['time', 'ion', 'rho_tor_norm']),
-    Variable(name='pressure thermal',
+    Variable(name='ion pressure thermal',
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/pressure_thermal',
              dims = ['time', 'ion', 'rho_tor_norm']),
@@ -211,7 +219,7 @@ variables_core_profiles = [
              ids = 'core_profiles',
              path = 'global_quantities/energy_diamagnetic',
              dims = ['time']),
-    Variable(name='z ion',
+    Variable(name='ion z',
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/z_ion',
              dims = ['time', 'ion']),
@@ -387,6 +395,7 @@ def extract_integrated_modelling(ids_names_to_extract, username, db, shot, run):
     dataset_integrated_modelling = {}
     variables, variables_time, variables_rho = construct_variables_lists(ids_names_to_extract)
 
+    # Need this?
     single_dataset = handle.get_variables([variables['core_profiles'][0], variables_time['core_profiles'][0], variables_rho['core_profiles'][0]])
 
     for key in variables:
@@ -408,6 +417,52 @@ def extract_integrated_modelling(ids_names_to_extract, username, db, shot, run):
     return dataset_integrated_modelling
 
 
+def put_integrated_modelling(dataset_integrated_modelling, username, db, shot, run, run_target, username_target = None, db_target = None, shot_target = None):
+
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    variables, variables_time, variables_rho = construct_variables_lists(dataset_integrated_modelling.keys())
+    handle.copy_data_to(target)
+    '''
+    variable = Variable(name='ne',
+         ids = 'core_profiles',
+         path = 'profiles_1d/*/electrons/density',
+         dims = ['time', 'rho_tor_norm'])
+   
+    ne_pre = handle.get_variables([variable, variables_time['core_profiles'][0], variables_rho['core_profiles'][0]])
+    ne_post = dataset_integrated_modelling['core_profiles'][variable.name]
+
+    print(ne_pre)
+    print(ne_post)
+    '''
+
+    for ids_key in dataset_integrated_modelling:
+        ids = target.get(ids_key)
+        for variable in variables[ids_key]:
+            # Handling exeptions
+            if variable.name == 'r0':
+                pass
+                #extras['b0'] = self.ids_struct[ids_iden].vacuum_toroidal_field.b0
+                #extras['r0'] = self.ids_struct[ids_iden].vacuum_toroidal_field.r0
+                #dataset_integrated_modelling[ids_key][variable.name].values = [dataset_integrated_modelling[ids_key][variable.name].values]
+                #ids.write_array_in_parts(variable.path, dataset_integrated_modelling[ids_key][variable.name])
+                #exit()
+
+            elif variable.name in ['multiple states flag', 'ion atoms n', 'grid index']:
+                var_dims = [dataset_integrated_modelling[ids_key].sizes[dim_variable] for dim_variable in dataset_integrated_modelling[ids_key][variable.name].dims]
+                var_new = np.full(var_dims,1).tolist()
+                dataset_integrated_modelling[ids_key][variable.name].values = var_new
+                #ids.sync(target)
+
+            elif variable.name in dataset_integrated_modelling[ids_key]:
+                ids.write_array_in_parts(variable.path, dataset_integrated_modelling[ids_key][variable.name])
+                #ids.sync(target)
+
+        ids.sync(target)
+
+
+
 def select_interval(ds, ids_list, time_start, time_end):
 
     # Could be only one for loop
@@ -426,7 +481,10 @@ def select_interval(ds, ids_list, time_start, time_end):
         
     return ds
 
-def average_integrated_modelling_duqtools(ds):
+def average_integrated_modelling(ds):
+
+    # TODO
+    # Should also select interval before
 
     for ids_key in ds:
         time = {}
@@ -536,13 +594,16 @@ def fit_x(ds_ids):
 
 
 # Rebasing the profiles in time
-def rebase_integrated_modelling_duqtools(ds, changing_idss, time_new):
+def rebase_integrated_modelling(ds, changing_idss, time_new):
     ds_new = {}
-    for changing_ids in changing_idss:
-        ds[changing_ids] = fit_x(ds[changing_ids])
+    for changing_ids in ds:
+        if changing_ids in changing_idss:
+            ds[changing_ids] = fit_x(ds[changing_ids])
 
-        # Interpolate over time here
-        ds_new[changing_ids] = ds[changing_ids].interp(time=time_new, kwargs={'fill_value':'extrapolate'})
+            # Interpolate over time here
+            ds_new[changing_ids] = ds[changing_ids].interp(time=time_new, kwargs={'fill_value':'extrapolate'})
+        else:
+            ds_new[changing_ids] = ds[changing_ids]
 
         # test on ti
         #index_time = np.abs(ds[changing_ids].time.values - time_new[1]).argmin(0)
@@ -574,17 +635,56 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     '''
 
+    extra_early_options = {
+        'flat q profile': True,
+        'normalize density to line ave': True,
+        'ne peaking 0': 0,
+        'te peaking 0': 0,
+        'ti peaking 0': 0,
+        'electron density option': 'first profile',
+        'electron density method options': [
+            'flat',
+            'first profile',
+            'linear',
+            'parabolic'
+        ],
+        'ion density option': 'first profile',
+        'ion density method options': [
+            'flat',
+            'first profile',
+            'linear',
+            'parabolic'
+        ],
+        'electron temperature option': 'first profile',
+        'electron temperature method options': [
+            'flat',
+            'first profile',
+            'linear',
+            'parabolic'
+        ],
+        'ion temperature option': 'first profile',
+        'ion temperature method options': [
+            'flat',
+            'first profile',
+            'electron first profile',
+            'linear',
+            'parabolic'
+        ]
+    }
+
     username=getpass.getuser()
     ids_names_to_extract = ['core_profiles', 'equilibrium', 'summary']
+
+    add_early_profiles(db, shot, run_input, run_start + 1, extra_early_options = extra_early_options)
 
     dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run_input)
 
     dataset_integrated_modelling = select_interval(dataset_integrated_modelling, ['equilibrium'], 0.2, 0.3)
 
-    #rebase_integrated_modelling_duqtools(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
-    rebase_integrated_modelling_duqtools(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
+    #rebase_integrated_modelling(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
+    rebase_integrated_modelling(dataset_integrated_modelling, ['equilibrium'], [0.1,0.2,0.3])
 
-    dataset_integrated_modelling = average_integrated_modelling_duqtools(dataset_integrated_modelling)
+    dataset_integrated_modelling = average_integrated_modelling(dataset_integrated_modelling)
 
 
     exit()
@@ -2048,7 +2148,7 @@ def select_interval_ids(db, shot, run, run_target, time_start, time_end, usernam
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
-def average_integrated_modelling(db, shot, run, run_target, time_start, time_end, username = None):
+def average_integrated_modelling_old(db, shot, run, run_target, time_start, time_end, username = None):
 
     '''
 
@@ -2064,7 +2164,7 @@ def average_integrated_modelling(db, shot, run, run_target, time_start, time_end
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
-def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None):
+def rebase_integrated_modelling_old(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None):
 
     '''
 
@@ -2382,7 +2482,7 @@ def open_and_get_all(db, shot, run, username='', backend='mdsplus'):
 
     return(ids_dict)
 
-def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mdsplus'):
+def put_integrated_modelling_old(db, shot, run, run_target, ids_struct, backend='mdsplus'):
 
     '''
 
@@ -2456,14 +2556,14 @@ class ZeffIntegratedModelling:
 
         ids_names_to_extract = ['core_profiles','summary']
         dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
-        print(dataset_integrated_modelling['core_profiles'])
+        #print(dataset_integrated_modelling['core_profiles'])
         self.zeff = dataset_integrated_modelling['core_profiles']['zeff']
         self.Zeff = dataset_integrated_modelling['core_profiles']['zeff'].to_numpy()
         self.rho_tor_norm = dataset_integrated_modelling['core_profiles']['rho_tor_norm'].to_numpy()
 
-        print(dataset_integrated_modelling['core_profiles']['zeff'])
-        print(dataset_integrated_modelling['core_profiles']['rho_tor_norm'])
-        exit()
+        #print(dataset_integrated_modelling['core_profiles']['zeff'])
+        #print(dataset_integrated_modelling['core_profiles']['rho_tor_norm'])
+        #exit()
 
 
         self.time_cp = dataset_integrated_modelling['core_profiles']['time core profiles'].to_numpy()
@@ -2773,7 +2873,7 @@ class ZeffIntegratedModelling:
 
 
 
-def set_flat_zeff(db, shot, run, run_target, option, username = None, username_target = None, db_target = None, shot_target = None):
+def set_flat_zeff_duqtools(db, shot, run, run_target, option, username = None, username_target = None, db_target = None, shot_target = None):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -4007,7 +4107,7 @@ def check_ion_number(db, shot, run):
 
     ion_number = len(ions)
 
-def check_ion_number(db, shot, run):
+def check_ion_number_old(db, shot, run):
 
     core_profiles = open_and_get_core_profiles(db, shot, run)
     ion_number = len(core_profiles.profiles_1d[0].ion)
@@ -4104,7 +4204,44 @@ def check_and_flip_ip(db, shot, run, shot_target, run_target):
 
         print('ip was positive for shot ' + str(shot) + ' and was flipped to negative')
 
-def flip_ip(db, shot, run, shot_target, run_target):
+
+def flip_ip(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None,):
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles', 'equilibrium']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    dataset_im['equilibrium']['ip'] = -dataset_im['equilibrium']['ip']
+    dataset_im['equilibrium']['b0'] = -dataset_im['equilibrium']['b0']
+
+
+    equilibrium = open_and_get_equilibrium(db, shot, run)
+    copy_ids_entry(username, db, shot, run, shot_target, run_target)
+
+    equilibrium_new = copy.deepcopy(equilibrium)
+
+    for itime, time_slice in enumerate(equilibrium.time_slice):
+        equilibrium_new.time_slice[itime].global_quantities.ip = -equilibrium.time_slice[itime].global_quantities.ip
+
+    equilibrium_new.vacuum_toroidal_field.b0 = -equilibrium.vacuum_toroidal_field.b0
+
+    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    equilibrium_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+    ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['te'])
+
+    ids.sync(target)
+    print('Ip flipped')
+
+
+def flip_ip_old(db, shot, run, shot_target, run_target):
 
     username = getpass.getuser()
 
@@ -4125,8 +4262,38 @@ def flip_ip(db, shot, run, shot_target, run_target):
     data_entry_target.close()
 
 # ------------------------------- KINETIC PROFILES MANIPULATION ---------------------------------
-
 def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
+
+    '''
+
+    Multiplies the profiles for all timeslices for a fixed value. Needs a tag to work (te, ne, ti, zeff)
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    e_temperatures = dataset_im['core_profiles']['te'][:]
+    new_e_temperature = []
+
+    for e_temperature in e_temperatures:
+        new_e_temperature.append(mult*(e_temperature - e_temperature[-1]) + e_temperature[-1])
+
+    dataset_im['core_profiles']['te'] = np.asarray(new_e_temperature)
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+    ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['te'])
+
+    ids.sync(target)
+    print('temperature_peaked')
+
+
+
+def peak_temperature_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
 
     '''
 
@@ -4220,6 +4387,245 @@ def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, use
 #def set_boundaries(db, shot, run, run_target, te_sep, ti_sep = None, method_te = 'constant', method_ti = None, bound_te_up = False, bound_te_down = False, db_target = None, shot_target = None, username = None):
 
 def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, db_target = None, shot_target = None, username = None):
+
+    '''
+
+    Writes a new IDS with a corrected value at the boundaries. With 'corrected' it is meant a value larger than 20 eV, since I
+    do not think that a lower value at the separatrix would be physical. The boundary is raised and then everything is shifted linearly.
+    The same value is kept for the axis. The same is done for the ion temperature
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    e_temperatures = dataset_im['core_profiles']['te'].values
+    i_temperatures = dataset_im['core_profiles']['t_i_ave'].values
+    e_densities = dataset_im['core_profiles']['ne'].values
+    rhos = dataset_im['core_profiles']['rho tor notrm time'].values
+    times = dataset_im['core_profiles'].time.values
+
+    method_te = extra_boundary_instructions['method te']
+    method_ti = extra_boundary_instructions['method ti']
+    te_sep = extra_boundary_instructions['te sep']
+    if extra_boundary_instructions['ti sep']:
+        ti_sep = extra_boundary_instructions['ti sep']
+    else:
+        ti_sep = False
+
+    if extra_boundary_instructions['bound te up']:
+        bound_te_up = extra_boundary_instructions['bound te up']
+    else:
+        bound_te_up = False
+
+    if extra_boundary_instructions['bound te down']:
+        bound_te_down = extra_boundary_instructions['bound te down']
+    else:
+        bound_te_down = False
+
+    time_continuity = extra_boundary_instructions['time continuity']
+    temp_start = extra_boundary_instructions['temp start']
+
+    te_sep_time, ti_sep_time = [], []
+        for itime, time in enumerate(times):
+
+        # Setting te
+        if method_te == 'constant':
+            te_sep_time.append(te_sep)
+
+        elif method_te == 'linear':
+            if te_sep is list:
+                te_sep_time.append((te_sep[1]-te_sep[0])*(time-time[0])/time[-1])
+            else:
+                print('te sep needs to be a list with the first and the last value when method is linear. Aborting')
+                exit()
+
+        elif method_te == 'add':
+            te_sep_time.append(e_temperatures[itime][-1] + te_sep)
+
+        elif method_te == 'add no start':
+            if itime > 1 and time < time_continuity:
+                te_sep_time.append(e_temperatures[itime][-1] + te_sep*(time_continuity-time)/time_continuity)
+            elif itime > 1 and time > time_continuity:
+                te_sep_time.append(e_temperatures[itime][-1] + te_sep)
+            else:
+                te_sep_time.append(e_temperatures[itime][-1])
+
+        elif method_te == 'add early':
+            # Sets initial temperature at temp_start eV and goes linearly to whatever value there is at temp_continuity. Still adds te_sep
+            f_space = interp1d(times, e_temperatures[:,-1])
+            temp_continuity = f_space(time_continuity)
+
+            if time < time_continuity:
+                te_sep_time.append((temp_continuity - temp_start + te_sep)/time_continuity*time + temp_start)
+            else:
+                te_sep_time.append(e_temperatures[itime][-1] + te_sep)
+
+        elif method_te == 'add early high':
+            # Sets initial temperature at 100 eV and goes linearly to whatever value there is at 0.05. Still adds. Now that I added flexibility should be the same as add early
+            f_space = interp1d(times, e_temperatures[:,-1])
+            temp_continuity = f_space(time_continuity)
+
+            if time < time_continuity:
+                te_sep_time.append((temp_continuity - temp_start + te_sep)/time_continuity*time + temp_start)
+            else:
+                te_sep_time.append(e_temperatures[itime][-1] + te_sep)
+
+        else:
+            print('method for boundary settings not recognized. Aborting')
+            exit()
+
+        # Setting ti
+
+        if not method_ti:
+            # Still want something here. I will secretly correct Ti when is clearly too low or too high.
+            ti_sep_time.append(i_temperatures[itime][-1])
+
+        elif method_ti == 'constant':
+            if ti_sep == 'te':
+                ti_sep_time.append(te_sep)
+            else:
+                ti_sep_time.append(ti_sep)
+            elif method_ti == 'linear':
+            if ti_sep is list:
+                ti_sep_time.append((ti_sep[1]-ti_sep[0])*(time-time[0])/time[-1])
+            elif ti_sep == 'te':
+                ti_sep_time.append((te_sep[1]-te_sep[0])*(time-time[0])/time[-1])
+            else:
+                print('ti sep needs to be a list with the first and the last value when method is linear. Aborting')
+                exit()
+
+        elif method_ti == 'add':
+            if ti_sep == 'te':
+                ti_sep_time.append(e_temperatures[itime][-1] + te_sep)
+            else:
+                ti_sep_time.append(i_temperatures[itime][-1] + ti_sep)
+
+        elif method_ti == 'add on te':
+            ti_sep_time.append(e_temperatures[itime][-1] + ti_sep)
+
+        elif method_ti == 'add on te profile':
+            ti_sep_time.append(e_temperatures[itime][-1] + ti_sep)
+
+        elif method_ti == 'add no start':
+            if itime > 1 and time < time_continuity:
+                if ti_sep == 'te':
+                    ti_sep_time.append(e_temperatures[itime][-1] + te_sep*(time_continuity-time)/time_continuity)
+                else:
+                    ti_sep_time.append(i_temperatures[itime][-1] + ti_sep*(time_continuity-time)/time_continuity)
+
+            elif itime > 1 and time > time_continuity:
+                if ti_sep == 'te':
+                    ti_sep_time.append(e_temperatures[itime][-1] + te_sep)
+                else:
+                    ti_sep_time.append(i_temperatures[itime][-1] + ti_sep)
+            else:
+                if ti_sep == 'te':
+                    ti_sep_time.append(e_temperatures[itime][-1])
+                else:
+                    ti_sep_time.append(i_temperatures[itime][-1])
+
+        elif method_ti == 'add early':
+            # Sets initial temperature at 20 eV and goes linearly to whatever value there is at 0.05. Still adds
+            f_space = interp1d(times, i_temperatures[:,-1])
+            t_continuity = f_space(time_continuity)
+
+            if time < time_continuity:
+                if ti_sep == 'te':
+                    ti_sep_time.append((t_continuity - temp_start + te_sep)/time_continuity*time + temp_start)
+                else:
+                    ti_sep_time.append((t_continuity - temp_start + ti_sep)/time_continuity*time + temp_start)
+            else:
+                if ti_sep == 'te':
+                    ti_sep_time.append(e_temperatures[itime][-1] + te_sep)
+                else:
+                    ti_sep_time.append(i_temperatures[itime][-1] + ti_sep)
+
+            elif method_ti == 'add early high':
+            # Sets initial temperature at 20 eV and goes linearly to whatever value there is at 0.05. Still adds
+            f_space = interp1d(times, i_temperatures[:,-1])
+            t_continuity = f_space(time_continuity)
+
+            if time < time_continuity:
+                ti_sep_time.append((t_continuity - temp_start + ti_sep)/time_continuity*time + temp_start)
+            else:
+                ti_sep_time.append(i_temperatures[itime][-1] + ti_sep)
+
+        else:
+            print('method for boundary settings not recognized. Aborting')
+            exit()
+
+
+    ne_sep_time = []
+    for itime, time in enumerate(times):
+        # Setting ne
+        if extra_boundary_instructions['method ne'] == 'constant':
+            ne_sep_time.append(extra_boundary_instructions['ne sep'])
+        elif extra_boundary_instructions['method ne'] == 'limit':
+            ne_sep_time.append(e_densities[itime][-1])
+
+    ne_sep_time = np.asarray(ne_sep_time)
+
+    if extra_boundary_instructions['method ne'] == 'limit':
+        ne_sep_time = np.where(ne_sep_time < extra_boundary_instructions['ne sep'], ne_sep_time, extra_boundary_instructions['ne sep'])
+
+    te_sep_time, ti_sep_time = np.asarray(te_sep_time), np.asarray(ti_sep_time)
+    if bound_te_down:
+        te_sep_time = np.where(te_sep_time > bound_te_down, te_sep_time, bound_te_down)
+    if bound_te_up:
+        te_sep_time = np.where(te_sep_time < bound_te_up, te_sep_time, bound_te_up)
+
+
+    # Ti is corrected when clearly too low or high. It would unecessarily slow down the simulation
+    ti_sep_time = np.where(ti_sep_time > 15, ti_sep_time, 15)
+    ti_sep_time = np.where(ti_sep_time < 500, ti_sep_time, 500)
+
+    new_e_temperatures, new_i_temperatures = [], []
+
+    for rho, e_temperature, index in zip(rhos, e_temperatures, range(len(rhos))):
+        new_e_temperatures.append(e_temperature+(te_sep_time[index]-e_temperature[-1])*rho)
+
+    new_e_temperatures = np.asarray(new_e_temperatures).reshape(len(e_temperatures),len(e_temperatures[0]))
+    dataset_im['core_profiles']['te'].values = new_e_temperatures
+
+    for rho, e_temperature, i_temperature, index in zip(rhos, e_temperatures, i_temperatures, range(len(rhos))):
+        if method_ti == 'add on te profile':
+            new_i_temperatures.append(e_temperature+ti_sep)
+        else:
+            new_i_temperatures.append(i_temperature+(ti_sep_time[index]-i_temperature[-1])*rho)
+
+    new_i_temperatures = np.asarray(new_i_temperatures).reshape(len(i_temperatures),len(i_temperatures[0]))
+    dataset_im['core_profiles']['t_i_ave'].values = new_i_temperatures
+    # Not really needed but trying to maintain consistency in case is needed later. Might put a loop later, only 2 imp supported now
+    new_i_temperatures = np.hstack(new_i_temperatures, new_i_temperatures)
+    dataset_im['core_profiles']['ni temperature'].values = new_i_temperatures
+
+    if extra_boundary_instructions['method ne']:
+        new_e_densities = []
+        for rho, e_density, index in zip(rhos, e_densities, range(len(rhos))):
+            new_e_densities.append(e_density+(ne_sep_time[index]-e_density[-1])*rho)
+
+        new_e_densities = np.asarray(new_e_densities).reshape(len(e_densities),len(e_densities[0]))
+        dataset_im['core_profiles']['ne'].values = new_e_densities
+        # Not really needed but trying to maintain consistency in case is needed later. Might put a loop later, only 2 imp supported now
+        dataset_im['core_profiles']['ne thermal'].values = new_e_densities
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+
+    for variable_name in ['te', 't_i_ave', 'ne', 'ne thermal']:
+        ids.write_array_in_parts(variable.path, dataset_im['core_profiles'][variable_name])
+
+    ids.sync(target)
+
+    #put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+
+    print('Set boundaries completed')
+
+
+def set_boundaries_old(db, shot, run, run_target, extra_boundary_instructions = {}, db_target = None, shot_target = None, username = None):
 
     '''
 
@@ -4495,8 +4901,51 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
 
     print('Set boundaries completed')
 
-
 def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_target = None,  username = None, username_target = None, mult = 1):
+
+    '''
+
+    Writes a new IDS with the same q95, but changing the value of q0. This version is untested
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles','equilibrium']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    mu0 = 4*np.pi*1.0e-7
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+
+    for ids_name in ids_names_to_extract:
+        r0, b0s = dataset_im[ids_name]['r0'], dataset_im[ids_name]['b0']
+        volumes, ips = dataset_im[ids_name]['volume'], dataset_im[ids_name]['ip']
+        q_old, rho = dataset_im[ids_name]['q'], dataset_im[ids_name]['rho tor norm time']
+
+        # Changing the q profile both in equilibrium and core profiles
+        q_new = []
+        for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
+            # This normalizes the q95 from the extrapolation to the value expected from the other parameters
+            index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+            q95 = abs(q_slice[index_rho_95])
+
+            q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
+
+            # This makes it easier to decide a value for q[0]. Could live it as an option.
+            mult_slice = abs(mult/q_slice[0])
+            q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
+            q_new.append(q_slice)
+
+        dataset_im[ids_name]['q'] = np.asarray(q_new)
+
+        ids = target.get(ids_name)
+        ids.write_array_in_parts(variable.path, dataset_im[ids_name]['q'])
+        ids.sync(target)
+
+
+
+def alter_q_profile_same_q95_old(db, shot, run, run_target, db_target = None, shot_target = None,  username = None, username_target = None, mult = 1):
 
     '''
 
@@ -4585,6 +5034,42 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
     Puts a limit to ti in case the ti/te ratio is too large.
 
     '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+
+    # Maybe in the future allow for consistency with the pressure
+    ion_temperatures = dataset_im['core_profiles']['t_i_ave']
+    electron_temperatures = dataset_im['core_profiles']['te']
+    new_profiles = np.where(ion_temperatures/electron_temperatures < ratio_limit, ion_temperatures, ratio_limit*electron_temperatures)
+    dataset_im['core_profiles']['t_i_ave'] = new_profiles
+
+    for i in np.arange(dataset_im['core_profiles'].sizes['ion'])
+        electron_temperatures = np.hstack(electron_temperatures, electron_temperatures)
+
+    ion_temperatures = dataset_im['core_profiles']['ti']
+    new_profiles = np.where(ion_temperatures/electron_temperatures < ratio_limit, ion_temperatures, ratio_limit*electron_temperatures)
+    dataset_im['core_profiles']['ti'] = new_profiles
+
+    variables = ['ti', 't_i_ave']
+    ids = target.get(ids_name)
+    for variable in variables:
+        ids.write_array_in_parts(variable.path, dataset_im[ids_name][variable])
+    ids.sync(target)
+
+
+def correct_ion_temperature_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ratio_limit = 2):
+
+    '''
+
+    Puts a limit to ti in case the ti/te ratio is too large.
+
+    '''
     if not username: username = getpass.getuser()
     if not username_target: username_target = username
     if not db_target: db_target = db
@@ -4610,6 +5095,41 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
 
 
 def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
+
+    '''
+
+    Multiplies the profiles for all timeslices for a fixed value. Needs a tag to work (te, ne, ti, zeff)
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    if dict_key == 'ti':
+        ion_temperature_keys = ['t_i_ave', 'ion pressure thermal', 'ti']
+        for key in ion_temperature_keys:
+            dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+
+    elif dict_key == 'ne':
+        density_keys = ['ne', 'ne_thermal']
+        for key in density_keys:
+            dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+
+    else:
+        dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+    for variable_name in ['te', 'ti', 't_i_ave', 'ne', 'ne thermal', 'ion pressure thermal']:
+        ids.write_array_in_parts(variable.path, dataset_im['core_profiles'][variable_name])
+
+    ids.sync(target)
+
+
+def shift_profiles_old(profile_tag, db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
 
     '''
 
@@ -4672,13 +5192,12 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
 
 
-def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
+def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
 
-    set_default_entries(username, db, shot, username_target, db_target, shot_target)
-    ids_names_to_extract = ['core_profiles','summary']
-    dataset_im = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
-
-    
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles','equilibrium','summary']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
 
     ne_peaking_0 = extra_early_options['ne peaking 0']
     te_peaking_0 = extra_early_options['te peaking 0']
@@ -4688,8 +5207,8 @@ def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, sho
     electron_temperature_option = extra_early_options['electron temperature option']
     ion_temperature_option = extra_early_options['ion temperature option']
 
-    old_times_core_profiles = dataset_im['core_profiles'].time
-    old_times_summary = dataset_im['summary'].time
+    old_times_core_profiles = dataset_im['core_profiles'].time.values
+    old_times_summary = dataset_im['summary'].time.values
 
     new_times_core_profiles = old_times_core_profiles[:]
 
@@ -4701,16 +5220,14 @@ def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, sho
 
     # The grid needs to be calculated before the first profile since the first grid might change and this can create problems
 
-    x_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'])[1]
-    time_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'])[0]
-    first_rho_norm_old = dataset_im['core_profiles']['rho tor norm time'][0]
+    x_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'].values)[1]
+    time_dim = np.shape(dataset_im['core_profiles']['rho tor norm time'].values)[0]
+    first_rho_norm_old = dataset_im['core_profiles']['rho tor norm time'].values[0]
 
     # Calculate the last rho_tor (non normalized) to extrapolate the last of the rho_tor for the first time step. The rest will be equidistant
     last_radial_rho = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, dataset_im['core_profiles']['rho tor'][:,-1])[0]
     first_rho_tor_norm = np.arange(x_dim)/x_dim
     first_rho_tor = first_rho_tor_norm*last_radial_rho
-
-    # WORKING ON NOW
 
     first_rho_tor_norm = np.arange(x_dim)/x_dim
     first_rho_tor = first_rho_tor_norm*last_radial_rho
@@ -4719,7 +5236,7 @@ def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, sho
 
     # The grid should not be back extrapolated freely (causes problems) but should be back extrapolated starting from a regularly spaced grid
     # Can probably be incorporated in the later code
-    old_rhos_norm = ids_dict['profiles_1d']['grid.rho_tor_norm'][:]
+    old_rhos_norm = dataset_im['core_profiles']['rho tor norm time'].values
     old_rhos_norm = np.insert(old_rhos_norm, 0, first_rho_tor_norm, axis = 0)
     old_times_core_profiles = np.insert(old_times_core_profiles, 0, 0.0)
 
@@ -4733,7 +5250,7 @@ def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, sho
     new_rhos_norm = new_rhos_norm.reshape(x_dim, len(new_times_core_profiles))
     new_rhos_norm = np.transpose(new_rhos_norm)
 
-    old_rhos = ids_dict['profiles_1d']['grid.rho_tor'][:]
+    old_rhos = dataset_im['core_profiles']['rho tor'].values
     old_rhos = np.insert(old_rhos, 0, first_rho_tor, axis = 0)
 
     new_rhos = np.asarray([])
@@ -4746,11 +5263,181 @@ def add_early_profiles_duqtools(db, shot, run, run_target, db_target = None, sho
     new_rhos = new_rhos.reshape(x_dim, len(new_times_core_profiles))
     new_rhos = np.transpose(new_rhos)
 
-    # WORKING ON NOW
+    new_profiles = {}
+
+    # Need a better treatment of ni
+    #for variable in ['ne thermal', 'ne', 'te', 'q', 't_i_ave', 'ni']:
+    for variable in ['ne thermal', 'ne', 'te', 'q', 't_i_ave']:
+
+        old_profiles = dataset_im['core_profiles'][variable].values
+        if variable == 'ne thermal' or variable == 'ne':
+            if electron_density_option == 'flat':
+                first_profile = np.full(np.size(dataset_im['core_profiles'][variable].values[0]), dataset_im['core_profiles'][variable].values[0][-1])
+            elif electron_density_option == 'first profile':
+                # Need to remap the profile to ensure first shape for the first profile
+                first_profile = fit_and_substitute(first_rho_norm_old, x, dataset_im['core_profiles'][variable].values[0])
+                #first_profile = ids_dict['profiles_1d'][variable][0]
+            elif electron_density_option == 'linear':
+                first_profile = dataset_im['core_profiles'][variable].values[0][-1] + ne_peaking_0*dataset_im['core_profiles'][variable].values[0][-1]*(1-x)
+            elif electron_density_option == 'parabolic':
+                first_profile = dataset_im['core_profiles'][variable].values[0][-1] + ne_peaking_0*dataset_im['core_profiles'][variable].values[0][-1]*(1-x)*(1-x)
+            else:
+                print('option for the first density profile not recognized. Aborting')
+        # Assuming (empirically, and it makes sense) that the initial temperature at the boundaries is lower at the very beginning, while the plasma warms up
+        # That did not work. Assuming boundaries are fixed, but temperature is slightly peaked
+        # Not activate now. Comments left to remember the history of changes
+        elif variable == 'ne':
+            if electron_temperature_option == 'linear':
+                first_profile = dataset_im['core_profiles'][variable].values[0][-1] + te_peaking_0*dataset_im['core_profiles'][variable].values[0][-1]*(1-x)
+            elif electron_temperature_option == 'parabolic':
+                first_profile = dataset_im['core_profiles'][variable].values[0][-1] + te_peaking_0*dataset_im['core_profiles'][variable].values[0][-1]*(1-x)*(1-x)
+            elif electron_temperature_option == 'first profile':
+                first_profile = fit_and_substitute(first_rho_norm_old, x, dataset_im['core_profiles'][variable].values[0])
+            elif electron_temperature_option == 'flat':
+                first_profile = np.full(np.size(dataset_im['core_profiles'][variable].values[0]), dataset_im['core_profiles'][variable].values[0][-1])
+        # Assumes that ions and electrons are thermalized at the beginning. Should be a fair assumption
+        elif variable == 't_i_ave':
+            # Need to polish Ti at the boundary when too large already here
+            t_i_bound = dataset_im['core_profiles'][variable].values[0][-1]
+            if t_i_bound > 4*dataset_im['core_profiles']['ne'].values[0][-1]:
+                t_i_bound = 4*dataset_im['core_profiles']['ne'].values[0][-1]
+            if ion_temperature_option == 'linear':
+                first_profile = t_i_bound + ti_peaking_0*t_i_bound*(1-x)
+            elif ion_temperature_option == 'parabolic':
+                first_profile = t_i_bound + ti_peaking_0*t_i_bound*(1-x)*(1-x)
+            elif ion_temperature_option == 'first profile':
+                first_profile = fit_and_substitute(first_rho_norm_old, x, dataset_im['core_profiles'][variable].values[0])
+            elif ion_temperature_option == 'flat':
+                first_profile = np.full(np.size(dataset_im['core_profiles'][variable].values[0]), t_i_bound)
+            elif ion_temperature_option == 'electron first profile':
+                first_profile = fit_and_substitute(first_rho_norm_old, x, dataset_im['core_profiles']['ne'].values[0])
+        # Probably not necessary but to avoid crashes. Could also use the zeff routines to imposed consistency with zeff
+        elif variable == 'ni':
+            if ion_density_option == 'linear':
+                first_profile = dataset_im['core_profiles'][variable].isel(ion=0).values[0][-1] + ti_peaking_0*dataset_im['core_profiles'][variable].isel(ion=0).values[0][-1]*(1-x)
+            elif ion_density_option == 'parabolic':
+                first_profile = dataset_im['core_profiles'].isel(ion=0).values[0][-1] + ti_peaking_0*dataset_im['core_profiles'][variable].isel(ion=0).values[0][-1]*(1-x)*(1-x)
+            elif ion_density_option == 'first profile':
+                first_profile = fit_and_substitute(first_rho_norm_old, x, dataset_im['core_profiles'][variable].isel(ion=0).values[0])
+            elif ion_density_option == 'flat':
+                first_profile = np.full(np.size(dataset_im['core_profiles'][variable].isel(ion=0).values[0]), dataset_im['core_profiles'][variable].isel(ion=0).values[0][-1])
+
+        # Setting a parabolic and not flat initial q profile
+        elif variable == 'q':
+            if extra_early_options['flat q profile']:
+                first_profile = np.full(np.size(dataset_im['core_profiles'][variable].values[0]), dataset_im['core_profiles'][variable].values[0][-1])
+            else:
+                norm = dataset_im['core_profiles']['q'].values[0][-1]/2
+                ave_q_profile = np.average(dataset_im['core_profiles']['q'].values[0])
+                first_profile = dataset_im['core_profiles']['q'].values[0][-1] - norm * np.sqrt(1-x)
+        else:
+            first_profile = np.full(np.size(dataset_im['core_profiles'][variable].values[0]), dataset_im['core_profiles'][variable].values[0][-1])
+
+        old_profiles = np.insert(old_profiles, 0, first_profile, axis = 0)
+
+        new_profiles[variable] = np.asarray([])
+
+        for i in np.arange(x_dim):
+            if np.size(new_profiles[variable]) != 0:
+                new_profiles[variable] = np.hstack((new_profiles[variable], fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_profiles[:,i])))
+            else:
+                new_profiles[variable] = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_profiles[:,i])
+
+        new_profiles[variable] = np.transpose(new_profiles[variable].reshape(x_dim, len(new_times_core_profiles)))
+
+    #When the current is negative, the fit extrapolation might flip it back to positive. Enforcing 0 current a t=0
+    old_current = np.insert(dataset_im['equilibrium']['ip'].values, 0, 0)
+    old_times_equilibrium = np.insert(dataset_im['equilibrium'].time, 0, 0)
+
+    # This might not belong in add_early_profiles. Ideally want to do it even when not adding the early profiles. Maybe in rebase?
+    # When measurement for the density are available and line averaged density is not, the line averaged density is corrected instead of just extrapolated.
+    # The formula is still raw but this is necessary for predictive runs to have the feedback puff activated correctly
+    first_density_boundary_measured = dataset_im['core_profiles']['ne'].values[0][-1]
+    i_time_over_0_1 = np.argmax(old_times_summary>0.1) + 1
+    #line_average_measured_point = np.sum(new_profiles[variable][i_time_over_0_1])/x_dim
+
+    # Summary and core profile do not have the same time trace.
+    # Need to build the line averaged density in the core profile time trace and the proxy in the summary time trace.
+    # Actually, I will build 3 proxys for electrons.density_thermal, electrons.density, ion[0].density
+    # Should build something for the ion density again
+    line_averaged_proxy, line_average_measured_point = {}, {}
+    for variable in ['ne thermal', 'ne']:
+        line_averaged_proxy[variable] = []
+        for i in range(len(dataset_im['core_profiles'][variable].values)):
+            line_averaged_proxy[variable].append(np.sum(dataset_im['core_profiles'][variable].values[i])/x_dim)
+
+        # Modifying here the line averaged density at the beginning to correlate it to the first measured boundary value
+        # Instead of having a fixed 0.5e19 value. The assumption is basically a mainly flat density profile
+        # 1.2 Is arbitrary, represents a sligthly peaked profile
+        line_averaged_proxy[variable] = np.insert(line_averaged_proxy[variable], 0, dataset_im['core_profiles']['ne'].values[0][-1]*1.2)
+        f_space = interp1d(old_times_core_profiles, line_averaged_proxy[variable])
+        line_average_measured_point[variable] = f_space(0.1)
+
+    line_averaged_proxy_summary_time = {}
+    for variable in ['ne thermal', 'ne']:
+        line_averaged_proxy_summary_time[variable] = fit_and_substitute(old_times_core_profiles, old_times_summary, line_averaged_proxy[variable])
+
+    # Will still try to generate reasonable data if the data is not available in the original IDS
+    if len(dataset_im['summary']['line ave ne'].values) == 0:
+        dataset_im['summary']['line ave ne'].values = []
+        for i in range(len(old_times_summary)):
+            dataset_im['summary']['line ave ne'].values.append(line_averaged_proxy_summary_time['ne'][i])
+        print('Careful! Generating the data for the line averaged density')
+        dataset_im['summary']['line ave ne'].values = np.asarray(dataset_im['summary']['line ave ne'].values)
+    else:
+        for i in range(i_time_over_0_1):
+            dataset_im['summary']['line ave ne'].values[i] = dataset_im['summary']['line ave ne'].values[i_time_over_0_1]*line_averaged_proxy_summary_time['ne'][i]/line_average_measured_point['ne']
+
+    line_ave_density_core_profiles_time = fit_and_substitute(old_times_summary, old_times_core_profiles, dataset_im['summary']['line ave ne'].values)
+    # In the pulse scheduler, where this is in the end taken from, the time trace is the one in core profiles.
+    # This might break things when I am NOT using add_early_profiles
+    #ids_dict['traces']['line_average.n_e.value'] = fit_and_substitute(old_times_summary, new_times_core_profiles, ids_dict['traces']['line_average.n_e.value'])
+
+    # This also secretly rebase. Could turn off this option...
+    dataset_im = rebase_integrated_modelling(dataset_im, ['core_profiles', 'equilibrium'], new_times_core_profiles)
 
 
+    # Adding the option of normalizing the initial density to the initial line average density (which might or might not be extrapolated)
+    if extra_early_options['normalize density to line ave']:
+        if len(dataset_im['summary']['line ave ne'].values) == 0:
+            print('No line average density data available. Cannot normalize density. Option should be changed to false')
+            exit()
 
-def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
+        for variable in ['ne thermal', 'ne']:
+            for i in range(len_added_times):
+                # The line average here is a raw approximation, should be done correctly taking the radial coordinate into account
+                # Also, the right profile to do this should be the first one actually measured. Here it might be extrapolated.
+                # Could also implement something that does not change the boundaries but it might be a little complicated
+                line_average = np.sum(new_profiles[variable][i])
+                line_average_measured_point = np.sum(new_profiles[variable][len_added_times])
+                new_profiles[variable][i] = new_profiles[variable][i]*line_average_measured_point/line_average*line_ave_density_core_profiles_time[i]/line_ave_density_core_profiles_time[len_added_times]
+
+    for variable in ['ne thermal', 'ne', 'te', 'q', 't_i_ave']:
+        dataset_im['core_profiles'][variable].values = new_profiles[variable]
+
+    #print(dataset_im['core_profiles']['rho tor norm time'])
+    #exit()
+
+    dataset_im['core_profiles']['rho tor norm time'].values = new_rhos_norm
+    dataset_im['core_profiles']['rho tor'].values = new_rhos
+    dataset_im['core_profiles']['ip'].values = fit_and_substitute(old_times_equilibrium, new_times_core_profiles, old_current)
+
+    #exit()
+
+    put_integrated_modelling(dataset_im, username, db, shot, run, run_target)
+
+
+    '''
+    # Should check that the correct coordinate for the HFPS is also updated. Or is it necessary?
+
+    target = ImasHandle(user = self.username_target, db = self.db_target, shot = self.shot_target, run = self.run_target)
+    core_profiles = target.get('core_profiles')
+    core_profiles.write_array_in_parts('profiles_1d/*/zeff', self.zeff['zeff'])
+    core_profiles.sync(target)
+    '''
+
+
+def add_early_profiles_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
 
     '''
 
@@ -5433,8 +6120,6 @@ if __name__ == "__main__":
 
     #setup_input('tcv', 64965, 5, 1500, json_dict, time_start = 0, time_end = 100, verbose = False, core_profiles = None, equilibrium = None)
     copy_ids_entry('g2mmarin', 'tcv', 64965, 1010, 64965, 1, backend = 'hdf5')
-
-
 
 
 
