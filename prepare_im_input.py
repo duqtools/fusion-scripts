@@ -178,12 +178,12 @@ variables_core_profiles = [
     Variable(name='rho pol norm',
              ids = 'core_profiles',
              path = 'profiles_1d/*/grid/rho_tor_norm',
-             dims = ['time', 'rho_tor_norm_core_profiles']),
+             dims = ['time', 'rho_tor_norm']),
     Variable(name='rho tor norm time',
              ids = 'core_profiles',
              path = 'profiles_1d/*/grid/rho_tor_norm',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='ion temperature',
+    Variable(name='ti',
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/temperature',
              dims = ['time', 'ion', 'rho_tor_norm']),
@@ -372,6 +372,21 @@ variable_equilibrium_rho = [
              dims = ['rho_tor_norm'])
 ]
 
+def get_variable_im(ids_name, name):
+
+    variables, variables_time, variables_rho = construct_variables_lists([ids_name])
+    variable_found = None
+    for variable in variables[ids_name]:
+        if variable.name == name:
+            variable_found = variable
+
+    if not variable_found:
+        # Should probably raise error
+        print('The requested variable does not exist. Aborting')
+        exit()
+
+    return variable_found
+
 def construct_variables_lists(ids_names_to_extract):
 
     variables, variables_time, variables_rho = {}, {}, {}
@@ -395,29 +410,47 @@ def extract_integrated_modelling(ids_names_to_extract, username, db, shot, run):
     dataset_integrated_modelling = {}
     variables, variables_time, variables_rho = construct_variables_lists(ids_names_to_extract)
 
-    # Need this?
-    single_dataset = handle.get_variables([variables['core_profiles'][0], variables_time['core_profiles'][0], variables_rho['core_profiles'][0]])
+    #import datetime
 
-    for key in variables:
-        dataset = xr.Dataset()
-        time = handle.get_variables(variables_time[key])
+    # This could be made more efficient by first checking what exisis and then extracting everything at the same time
+    '''
+    variables_probe = {}
+    for ids_key in variables:
+        variables_probe[ids_key] = []
+        for variable in variables[ids_key]:
+            variable.path = variable.path.replace('*','0')
+            variables_probe[ids_key].append(variable)
 
-        for variable in variables[key]:
+    for ids_key in variables:
+        for variable in variables_probe[ids_key]:
             try:
-                if key in variables_rho.keys(): 
-                    single_dataset = handle.get_variables([variable, variables_time[key][0], variables_rho[key][0]])
+                single_dataset = handle.get_variables([variable])
+            except (ValueError, duqtools.ids._mapping.EmptyVarError):
+                print('excluding something')
+                pass
+
+    '''
+
+    for ids_key in variables:
+        dataset = xr.Dataset()
+
+        for variable in variables[ids_key]:
+            print(variable, datetime.datetime.now())
+            try:
+                if ids_key in variables_rho.keys(): 
+                    single_dataset = handle.get_variables([variable, variables_time[ids_key][0], variables_rho[ids_key][0]])
                 else:
-                    single_dataset = handle.get_variables([variable, variables_time[key][0]])
+                    single_dataset = handle.get_variables([variable, variables_time[ids_key][0]])
                 dataset = xr.merge([dataset, single_dataset])
             except (ValueError, duqtools.ids._mapping.EmptyVarError):
                 pass
 
-        dataset_integrated_modelling[key] = dataset
+        dataset_integrated_modelling[ids_key] = dataset
 
     return dataset_integrated_modelling
 
 
-def put_integrated_modelling(dataset_integrated_modelling, username, db, shot, run, run_target, username_target = None, db_target = None, shot_target = None):
+def put_integrated_modelling(dataset_integrated_modelling, db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
 
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
@@ -439,13 +472,14 @@ def put_integrated_modelling(dataset_integrated_modelling, username, db, shot, r
 
     for ids_key in dataset_integrated_modelling:
         ids = target.get(ids_key)
+        #print(ids)
         for variable in variables[ids_key]:
             # Handling exeptions
             if variable.name == 'r0':
                 pass
                 #extras['b0'] = self.ids_struct[ids_iden].vacuum_toroidal_field.b0
                 #extras['r0'] = self.ids_struct[ids_iden].vacuum_toroidal_field.r0
-                #dataset_integrated_modelling[ids_key][variable.name].values = [dataset_integrated_modelling[ids_key][variable.name].values]
+                #dataset_integrated_modelling[ids_key][variable.name].values = dataset_integrated_modelling[ids_key][variable.name].values
                 #ids.write_array_in_parts(variable.path, dataset_integrated_modelling[ids_key][variable.name])
                 #exit()
 
@@ -453,9 +487,12 @@ def put_integrated_modelling(dataset_integrated_modelling, username, db, shot, r
                 var_dims = [dataset_integrated_modelling[ids_key].sizes[dim_variable] for dim_variable in dataset_integrated_modelling[ids_key][variable.name].dims]
                 var_new = np.full(var_dims,1).tolist()
                 dataset_integrated_modelling[ids_key][variable.name].values = var_new
+                ids.write_array_in_parts(variable.path, dataset_integrated_modelling[ids_key][variable.name])
                 #ids.sync(target)
 
             elif variable.name in dataset_integrated_modelling[ids_key]:
+                print(variable.name)
+                print(dataset_integrated_modelling[ids_key][variable.name])
                 ids.write_array_in_parts(variable.path, dataset_integrated_modelling[ids_key][variable.name])
                 #ids.sync(target)
 
@@ -594,8 +631,9 @@ def fit_x(ds_ids):
 
 
 # Rebasing the profiles in time
-def rebase_integrated_modelling(ds, changing_idss, time_new):
+def update_times_integrated_modelling(ds, changing_idss, time_new):
     ds_new = {}
+    print(time_new)
     for changing_ids in ds:
         if changing_ids in changing_idss:
             ds[changing_ids] = fit_x(ds[changing_ids])
@@ -672,10 +710,14 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         ]
     }
 
+
+    '''
     username=getpass.getuser()
     ids_names_to_extract = ['core_profiles', 'equilibrium', 'summary']
 
     add_early_profiles(db, shot, run_input, run_start + 1, extra_early_options = extra_early_options)
+
+    exit()
 
     dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run_input)
 
@@ -688,7 +730,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
 
     exit()
-
+    '''
     '''
     #handle = ImasHandle(user = username, db = 'tcv', shot = 64862, run = 5)
     #print(handle.path())
@@ -748,14 +790,14 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     #exit()
 
-    Zeff = ZeffIntegratedModelling(db, shot, run_input, run_start)
-    option = 'median'
+    #Zeff = ZeffIntegratedModelling(db, shot, run_input, run_start)
+    #option = 'median'
     #Zeff.set_flat_zeff(option)
 
-    zeff_param = 3
-    Zeff.set_parabolic_zeff(zeff_param = zeff_param)
+    #zeff_param = 3
+    #Zeff.set_parabolic_zeff(zeff_param = zeff_param)
 
-    exit()
+    #exit()
 
 
     # Checking that everything is fine with the input options
@@ -844,6 +886,8 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     else:
         time_start = time_start
 
+    #json_input['rebase']['option'] = 'linear'
+
     if json_input['instructions']['average']:
         average_integrated_modelling(db, shot, run_input, run_start, time_start, time_end)
         print('Averaging on index ' + str(run_start))
@@ -860,9 +904,13 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # If necessary, flipping ip here. Runs for sensitivities should be possible from this index (unless Zeff is weird)
 
+    import time
+
+    print(time.localtime())
+
     if json_input['instructions']['flipping ip']:
         # Currently flips both Ip and b0
-        flip_ip(db, shot, run_input, shot, run_start)
+        flip_ip(db, shot, run_input, run_start)
         print('flipping ip on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -876,6 +924,9 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         prepare_nbi(db, shot, run_input, shot, run_start)
         print('Preparing nbi on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
+
+    print(time.localtime())
+
 
     ion_number = check_ion_number(db, shot, run_input)
 
@@ -2146,7 +2197,7 @@ def select_interval_ids(db, shot, run, run_target, time_start, time_end, usernam
     ids_data = IntegratedModellingDict(db, shot, run, username = username)
     ids_data.select_interval(time_start, time_end)
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 def average_integrated_modelling_old(db, shot, run, run_target, time_start, time_end, username = None):
 
@@ -2162,7 +2213,33 @@ def average_integrated_modelling_old(db, shot, run, run_target, time_start, time
     ids_data.select_interval(time_start, time_end)
     ids_data.average_traces_profile()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
+
+def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None):
+
+    #num_times = 300
+    #option = 'linear'
+    if not username: username = getpass.getuser()
+
+    dataset_im = extract_integrated_modelling(changing_idss, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    if option == 'core profiles':
+        #handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+        time_new = handle.get_variables([variable_core_profiles_time[0]])['time'].values
+        dataset_im = update_times_integrated_modelling(dataset_im, changing_idss, time_new)
+
+    if option == 'linear':
+        variables, variables_time, variables_rho = construct_variables_lists(changing_idss)
+        for changing_ids in changing_idss:
+            times = handle.get_variables([variables_time[changing_ids][0]])['time'].values
+            time_start, time_end = min(times), max(times)
+            time_new = np.arange(time_start, time_end, (time_end - time_start)/num_times)
+
+            dataset_im = update_times_integrated_modelling(dataset_im, [changing_ids], time_new)
+
+    put_integrated_modelling(dataset_im, db, shot, run, run_target)
+
 
 def rebase_integrated_modelling_old(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None):
 
@@ -2552,7 +2629,8 @@ class ZeffIntegratedModelling:
         self.username_target = username_target
         self.db_target = db_target
         self.shot_target = shot_target
-        self.set_default_entries()
+
+        self.username, self.username_target, self.db_target, self.shot_target = set_default_entries(self.username, self.db, self.shot, self.username_target, self.db_target, self.shot_target)
 
         ids_names_to_extract = ['core_profiles','summary']
         dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
@@ -2638,12 +2716,12 @@ class ZeffIntegratedModelling:
 
         for index in range(np.shape(self.Zeff)[0]):
             norm = zeff_param * (average_zeff[index]-1)/2
-            print(1-self.rho_tor_norm[index])
-            print(self.rho_tor_norm)
-            print(self.rho_tor_norm[index])
+            #print(1-self.rho_tor_norm[index])
+            #print(self.rho_tor_norm)
+            #print(self.rho_tor_norm[index])
             self.Zeff[index] = average_zeff[index] + norm/2 - norm * np.sqrt(1-self.rho_tor_norm[index])
-            print(self.Zeff[index])
-            exit()
+            #print(self.Zeff[index])
+            #exit()
 
         self.correct_numpy_Zeff()
         self.put_zeff()
@@ -2983,7 +3061,7 @@ def correct_numpy_Zeff(Zeff):
     return Zeff
 
 
-def correct_zeff(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
+def correct_zeff_duqtools(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -3042,14 +3120,14 @@ t die close to the boundaries.
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     print('zeff corrected')
 
 # WORK IN PROGRESS
 
 
-def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None):
+def set_parabolic_zeff_duqtools(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None):
 
     '''
 
@@ -3132,11 +3210,11 @@ def set_parabolic_zeff_old(db, shot, run, run_target, zeff_param = 1, db_target 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     print('zeff turned parabolic')
 
-def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
+def set_peaked_zeff_profile_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
 
     '''
     Sets a peaked Zeff profiles, trying to (roughly!) keep Zeff the same
@@ -3212,12 +3290,12 @@ def set_peaked_zeff_profile_old(db, shot, run, run_target, db_target = None, sho
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 # ----------------------------- WORK IN PROGRESS ----------------------------------
 
-def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose =
+def set_peaked_ev_zeff_profile_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose =
  False, zeff_param = 1):
 
     '''
@@ -3305,9 +3383,9 @@ def set_peaked_ev_zeff_profile_old(db, shot, run, run_target, db_target = None, 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
-def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None):
+def set_low_edge_zeff_duqtools(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None):
 
     '''
     Sets a flat Zeff profile but with the separatrix lower with a gaussian function. Might be better numerically for initialization.
@@ -3365,7 +3443,7 @@ def set_low_edge_zeff_old(db, shot, run, run_target, zeff_param = 0, db_target =
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 # WORK IN PROGRESS LATEST #3.31.2023
@@ -3384,7 +3462,7 @@ def find_indexes_start_end(ip, time_eq, zeff_param, time_cp):
     index_end_ft = np.abs(time_cp - time_eq[index_end_ft_eq]).argmin(0)
 
 
-def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_hyperbole_zeff_duqtools(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -3513,10 +3591,10 @@ def set_hyperbole_zeff_old(db, shot, run, run_target, zeff_param = 0, zeff_max =
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
-def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_ip_ne_scaled_zeff_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -3621,7 +3699,7 @@ def set_ip_ne_scaled_zeff_old(db, shot, run, run_target, db_target = None, shot_
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 def extract_variables_zeff_manipulation(username, db, shot, run, run_target):
@@ -3642,7 +3720,7 @@ def extract_variables_zeff_manipulation(username, db, shot, run, run_target):
 
     return rho_tor_norm, time_cp, time_eq, Zeff, Ip, ne, ne_ave
 
-def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_linear_descending_zeff_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -3720,10 +3798,10 @@ def set_linear_descending_zeff_old(db, shot, run, run_target, db_target = None, 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
-def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_impurity_composition_from_flattop_duqtools(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
 
@@ -3853,7 +3931,7 @@ def set_impurity_composition_from_flattop_old(db, shot, run, run_target, db_targ
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 def identify_flattop(db, shot, run, verbose = False):
@@ -4090,22 +4168,16 @@ def identify_flattop_ip(ip, time):
     return(index_flattop_begin, index_flattop_end)
 
 
-def check_ion_number(db, shot, run):
+def check_ion_number(db, shot, run, username = None):
 
+    if not username: username = getpass.getuser()
+    variable = get_variable_im('core_profiles', 'ion z')
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
-    variable = [
-        Variable(name='ions',
-                 ids = 'core_profiles',
-                 path = 'profiles_1d/ion/*',
-                 dims = ['time', 'rho_tor_norm']),
-        'rho_tor_norm',
-        'time'
-    ]
+    print([variable, variable_core_profiles_time[0]])
+    ion = handle.get_variables([variable, variable_core_profiles_time[0]])
+    ion_number = ion.sizes['ion']
 
-    ions = handle.get_variables(variable)
-    ions = ions['ions']
-
-    ion_number = len(ions)
+    return(ion_number)
 
 def check_ion_number_old(db, shot, run):
 
@@ -4117,6 +4189,48 @@ def check_ion_number_old(db, shot, run):
 # ------------------------------- Q PROFILE MANIPULATION ---------------------------------
 
 def flip_q_profile(db, shot, run, run_target, username = ''):
+
+    '''
+
+    Writes a new ids with the opposite sign of the q profile
+
+    '''
+    if username == '':
+        username = getpass.getuser()
+
+    core_profiles = open_and_get_core_profiles(db, shot, run, username)
+
+    for index, profile_1d in enumerate(core_profiles.profiles_1d):
+        core_profiles.profiles_1d[index].q = -core_profiles.profiles_1d[index].q
+
+    copy_ids_entry(username, db, shot, run, shot, run_target)
+
+    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run_target, user_name=username)
+
+    op = data_entry_target.open()
+    core_profiles.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles', 'equilibrium']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    dataset_im['equilibrium']['q'] = -dataset_im['equilibrium']['q']
+    dataset_im['core_profiles']['q'] = -dataset_im['core_profiles']['q']
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+    variable = get_variable_im('core_profiles', 'q')
+    ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['q'])
+
+    ids.sync(target)
+    print('Ip flipped')
+
+
+
+def flip_q_profile_old(db, shot, run, run_target, username = ''):
 
     '''
 
@@ -4196,48 +4310,65 @@ def use_flat_vloop(db, shot, run_relaxed, run_target, username = ''):
     data_entry_target.close()
 
 
-def check_and_flip_ip(db, shot, run, shot_target, run_target):
+def check_and_flip_ip(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
 
-    equilibrium = open_and_get_equilibrium(db, shot, run)
-    if equilibrium.time_slice[0].global_quantities.ip > 0:
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['equilibrium']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    if dataset_im['equilibrium']['ip'].values[0] > 0:
         flip_ip(db, shot, run, shot_target, run_target)
 
         print('ip was positive for shot ' + str(shot) + ' and was flipped to negative')
 
 
-def flip_ip(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None,):
+def flip_ip(db, shot, run, run_target, username = None, username_target = None, db_target = None, shot_target = None):
 
     username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
     ids_names_to_extract = ['core_profiles', 'equilibrium']
     dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+    time_core_profiles, time_equilibrium  = dataset_im['equilibrium'].time, dataset_im['core_profiles'].time
 
-    dataset_im['equilibrium']['ip'] = -dataset_im['equilibrium']['ip']
-    dataset_im['equilibrium']['b0'] = -dataset_im['equilibrium']['b0']
+    for quantity_name in ['ip', 'b0']:
+        if not (quantity_name in dataset_im['equilibrium'] or quantity_name in dataset_im['core_profiles']):
+            print('No ip found. The simulation will not work. Aborting')
+        elif quantity_name in dataset_im['equilibrium']:
+            quantity = fit_and_substitute(time_core_profiles, time_equilibrium, dataset_im['equilibrium'][quantity_name].values)
+            dataset_im['core_profiles'] = dataset_im['core_profiles'].assign({quantity_name:(('time'),quantity)})
+        elif quantity_name in dataset_im['core_profiles']:
+            quantity = fit_and_substitute(time_core_profiles, time_equilibrium, dataset_im['core_profiles'][quantity_name].values)
+            dataset_im['equilibrium'] = dataset_im['equilibrium'].assign({quantity_name:(('time'),quantity)})
 
+    '''
+    if not ('ip' in dataset_im['equilibrium'] and 'b0' in dataset_im['equilibrium']):
+        print('No ip or b0 found. The simulation will not work. Aborting')
+        exit()
 
-    equilibrium = open_and_get_equilibrium(db, shot, run)
-    copy_ids_entry(username, db, shot, run, shot_target, run_target)
+    if not ('ip' in dataset_im['core_profiles'] and 'b0' in dataset_im['core_profiles']):
+        print('No ip or b0 found. The simulation will not work. Aborting')
+        exit()
+    '''
 
-    equilibrium_new = copy.deepcopy(equilibrium)
+    print(dataset_im['core_profiles'])
 
-    for itime, time_slice in enumerate(equilibrium.time_slice):
-        equilibrium_new.time_slice[itime].global_quantities.ip = -equilibrium.time_slice[itime].global_quantities.ip
-
-    equilibrium_new.vacuum_toroidal_field.b0 = -equilibrium.vacuum_toroidal_field.b0
-
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot_target, run_target, user_name=getpass.getuser())
-
-    op = data_entry_target.open()
-    equilibrium_new.put(db_entry = data_entry_target)
-    data_entry_target.close()
+    # Should also flip core profiles?
+    dataset_im['equilibrium']['ip'].values = -dataset_im['equilibrium']['ip'].values
+    dataset_im['equilibrium']['b0'].values = -dataset_im['equilibrium']['b0'].values
 
     target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
     handle.copy_data_to(target)
-    ids = target.get('core_profiles')
-    ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['te'])
 
-    ids.sync(target)
+    for ids_name in ['core_profiles', 'equilibrium']:
+        ids = target.get(ids_name)
+        variable = get_variable_im(ids_name, 'ip')
+        ids.write_array_in_parts(variable.path, dataset_im[ids_name]['ip'])
+
+        variable = get_variable_im(ids_name, 'b0')
+        ids.write_array_in_parts(variable.path, dataset_im[ids_name]['b0'])
+
+        ids.sync(target)
+
     print('Ip flipped')
 
 
@@ -4275,17 +4406,18 @@ def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = 
     dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
 
-    e_temperatures = dataset_im['core_profiles']['te'][:]
+    e_temperatures = dataset_im['core_profiles']['te'].values
     new_e_temperature = []
 
     for e_temperature in e_temperatures:
         new_e_temperature.append(mult*(e_temperature - e_temperature[-1]) + e_temperature[-1])
 
-    dataset_im['core_profiles']['te'] = np.asarray(new_e_temperature)
+    dataset_im['core_profiles']['te'].values = np.asarray(new_e_temperature)
 
     target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
     handle.copy_data_to(target)
     ids = target.get('core_profiles')
+    variable = get_variable_im('core_profiles', 'te')
     ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['te'])
 
     ids.sync(target)
@@ -4320,11 +4452,92 @@ def peak_temperature_old(db, shot, run, run_target, db_target = None, shot_targe
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     print('temperature_peaked')
 
-def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, verbose = False):
+def correct_boundaries_te(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+
+    '''
+
+    Writes a new IDS with a corrected value at the boundaries. With 'corrected' it is meant a value larger than 20 eV, since I
+    do not think that a lower value at the separatrix would be physical. The boundary is raised and then everything is shifted linearly.
+    The same value is kept for the axis. The same is done for the ion temperature
+
+    '''
+
+    username, username_target, db_target, shot_target = set_default_entries(username, db, shot, username_target, db_target, shot_target)
+    ids_names_to_extract = ['core_profiles']
+    dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
+    handle = ImasHandle(user = username, db = db, shot = shot, run = run)
+
+    e_temperatures = dataset_im['core_profiles']['te'].values
+    i_temperatures = dataset_im['core_profiles']['t_i_ave'].values
+    rhos = dataset_im['core_profiles']['rho tor norm time'].values
+
+    new_e_temperatures, new_i_temperatures = [], []
+
+    for rho, e_temperature, index in zip(rhos, e_temperatures, range(len(rhos))):
+        if e_temperature[-1] < 20:
+            new_e_temperatures.append(e_temperature+(20-e_temperature[-1])*rho)
+            index_modified = index
+        else:
+            new_e_temperatures.append(e_temperature)
+
+    for rho, i_temperature, index in zip(rhos, i_temperatures, range(len(rhos))):
+        if i_temperature[-1] < 20:
+            new_i_temperatures.append(i_temperature+(20-i_temperature[-1])*rho)
+            index_modified = index
+        else:
+            new_i_temperatures.append(i_temperature)
+
+    new_e_temperatures = np.asarray(new_e_temperatures).reshape(len(e_temperatures),len(e_temperatures[0]))
+    dataset_im['core_profiles']['te'].values = new_e_temperatures
+
+    new_i_temperatures = np.asarray(new_i_temperatures).reshape(len(i_temperatures),len(i_temperatures[0]))
+    dataset_im['core_profiles']['t_i_ave'].values = new_i_temperatures
+    # Not really needed but trying to maintain consistency in case is needed later. Might put a loop later, only 2 imp supported now
+    
+    #for i in np.arange(dataset_im['core_profiles'].sizes['ion']):
+    #    electron_temperatures = np.hstack(electron_temperatures, electron_temperatures)
+
+    for i in np.arange(dataset_im['core_profiles'].sizes['ion']):
+        new_i_temperatures = np.hstack(new_i_temperatures, new_i_temperatures)
+
+    dataset_im['core_profiles']['ti'] = new_i_temperatures
+
+    target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
+    handle.copy_data_to(target)
+    ids = target.get('core_profiles')
+    variable = get_variable_im('core_profiles', 'te')
+    ids.write_array_in_parts(variable.path, dataset_im['core_profiles']['te'])
+
+    ids.sync(target)
+    print('temperature_peaked')
+
+
+
+
+    ids_data.ids_dict = ids_dict
+    ids_data.fill_ids_struct()
+
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
+
+    if verbose and index_modified:
+        fig, axs = plt.subplots(1,1)
+        axs.plot(rhos[index_modified], e_temperatures[index_modified], 'r-', label = 'Te old')
+        axs.plot(rhos[index_modified], new_e_temperatures[index_modified], 'b-', label = 'Te new')
+        fig.legend()
+        plt.show()
+
+    print('Boundaries corrected')
+
+
+
+
+
+
+def correct_boundaries_te_old(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, verbose = False):
 
     '''
 
@@ -4372,7 +4585,7 @@ def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, use
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     if verbose and index_modified:
         fig, axs = plt.subplots(1,1)
@@ -4428,7 +4641,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     temp_start = extra_boundary_instructions['temp start']
 
     te_sep_time, ti_sep_time = [], []
-        for itime, time in enumerate(times):
+    for itime, time in enumerate(times):
 
         # Setting te
         if method_te == 'constant':
@@ -4487,7 +4700,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
                 ti_sep_time.append(te_sep)
             else:
                 ti_sep_time.append(ti_sep)
-            elif method_ti == 'linear':
+        elif method_ti == 'linear':
             if ti_sep is list:
                 ti_sep_time.append((ti_sep[1]-ti_sep[0])*(time-time[0])/time[-1])
             elif ti_sep == 'te':
@@ -4542,7 +4755,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
                 else:
                     ti_sep_time.append(i_temperatures[itime][-1] + ti_sep)
 
-            elif method_ti == 'add early high':
+        elif method_ti == 'add early high':
             # Sets initial temperature at 20 eV and goes linearly to whatever value there is at 0.05. Still adds
             f_space = interp1d(times, i_temperatures[:,-1])
             t_continuity = f_space(time_continuity)
@@ -4598,7 +4811,8 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     new_i_temperatures = np.asarray(new_i_temperatures).reshape(len(i_temperatures),len(i_temperatures[0]))
     dataset_im['core_profiles']['t_i_ave'].values = new_i_temperatures
     # Not really needed but trying to maintain consistency in case is needed later. Might put a loop later, only 2 imp supported now
-    new_i_temperatures = np.hstack(new_i_temperatures, new_i_temperatures)
+    for i in np.arange(dataset_im['core_profiles'].sizes['ion']):
+        new_i_temperatures = np.hstack(new_i_temperatures, new_i_temperatures)
     dataset_im['core_profiles']['ni temperature'].values = new_i_temperatures
 
     if extra_boundary_instructions['method ne']:
@@ -4616,11 +4830,12 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     ids = target.get('core_profiles')
 
     for variable_name in ['te', 't_i_ave', 'ne', 'ne thermal']:
+        variable = get_variable_im('core_profiles', variable_name)
         ids.write_array_in_parts(variable.path, dataset_im['core_profiles'][variable_name])
 
     ids.sync(target)
 
-    #put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    #put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     print('Set boundaries completed')
 
@@ -4897,7 +5112,7 @@ def set_boundaries_old(db, shot, run, run_target, extra_boundary_instructions = 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
     print('Set boundaries completed')
 
@@ -4940,6 +5155,7 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
         dataset_im[ids_name]['q'] = np.asarray(q_new)
 
         ids = target.get(ids_name)
+        variable = get_variable_im(ids_name, 'q')
         ids.write_array_in_parts(variable.path, dataset_im[ids_name]['q'])
         ids.sync(target)
 
@@ -5024,7 +5240,7 @@ def alter_q_profile_same_q95_old(db, shot, run, run_target, db_target = None, sh
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ratio_limit = 2):
@@ -5044,22 +5260,28 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
     handle.copy_data_to(target)
 
     # Maybe in the future allow for consistency with the pressure
-    ion_temperatures = dataset_im['core_profiles']['t_i_ave']
-    electron_temperatures = dataset_im['core_profiles']['te']
+    ion_temperatures = dataset_im['core_profiles']['t_i_ave'].values
+    electron_temperatures = dataset_im['core_profiles']['te'].values
     new_profiles = np.where(ion_temperatures/electron_temperatures < ratio_limit, ion_temperatures, ratio_limit*electron_temperatures)
-    dataset_im['core_profiles']['t_i_ave'] = new_profiles
+    dataset_im['core_profiles']['t_i_ave'].values = new_profiles
 
-    for i in np.arange(dataset_im['core_profiles'].sizes['ion'])
-        electron_temperatures = np.hstack(electron_temperatures, electron_temperatures)
+    # Correcting all the ions for consistency
+    ion_temperatures = dataset_im['core_profiles']['ti'].values
 
-    ion_temperatures = dataset_im['core_profiles']['ti']
-    new_profiles = np.where(ion_temperatures/electron_temperatures < ratio_limit, ion_temperatures, ratio_limit*electron_temperatures)
-    dataset_im['core_profiles']['ti'] = new_profiles
+    te_ion_size = electron_temperatures
+    for i in np.arange(dataset_im['core_profiles'].sizes['ion']-1):
+        te_ion_size = np.hstack((te_ion_size, electron_temperatures))
+
+    te_ion_size = te.reshape(np.shape(ion_temperatures))
+
+    new_profiles = np.where(ion_temperatures/te_ion_size < ratio_limit, ion_temperatures, ratio_limit*te_ion_size)
+    dataset_im['core_profiles']['ti'].values = new_profiles
 
     variables = ['ti', 't_i_ave']
     ids = target.get(ids_name)
-    for variable in variables:
-        ids.write_array_in_parts(variable.path, dataset_im[ids_name][variable])
+    for variable_name in variables:
+        variable = get_variable_im('core_profiles', variable_name)
+        ids.write_array_in_parts(variable.path, dataset_im[ids_name][name_variable])
     ids.sync(target)
 
 
@@ -5091,7 +5313,7 @@ def correct_ion_temperature_old(db, shot, run, run_target, db_target = None, sho
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
@@ -5107,23 +5329,28 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     dataset_im = extract_integrated_modelling(ids_names_to_extract, username, db, shot, run)
     handle = ImasHandle(user = username, db = db, shot = shot, run = run)
 
-    if dict_key == 'ti':
+    print(dataset_im['core_profiles'])
+    for variable in dataset_im['core_profiles']:
+        print(variable)
+
+    if profile_tag == 'ti':
         ion_temperature_keys = ['t_i_ave', 'ion pressure thermal', 'ti']
         for key in ion_temperature_keys:
-            dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+            dataset_im['core_profiles'][key].values = mult*dataset_im['core_profiles'][key].values
 
-    elif dict_key == 'ne':
+    elif profile_tag == 'ne':
         density_keys = ['ne', 'ne_thermal']
         for key in density_keys:
-            dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+            dataset_im['core_profiles'][key].values = mult*dataset_im['core_profiles'][key].values
 
     else:
-        dataset_im['core_profiles'][key] = mult*dataset_im['core_profiles'][key]
+        dataset_im['core_profiles'][key].values = mult*dataset_im['core_profiles'][key].values
 
     target = ImasHandle(user = username_target, db = db_target, shot = shot_target, run = run_target)
     handle.copy_data_to(target)
     ids = target.get('core_profiles')
     for variable_name in ['te', 'ti', 't_i_ave', 'ne', 'ne thermal', 'ion pressure thermal']:
+        variable = get_variable_im('core_profiles', variable_name)
         ids.write_array_in_parts(variable.path, dataset_im['core_profiles'][variable_name])
 
     ids.sync(target)
@@ -5189,7 +5416,7 @@ def shift_profiles_old(profile_tag, db, shot, run, run_target, db_target = None,
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
@@ -5394,7 +5621,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     #ids_dict['traces']['line_average.n_e.value'] = fit_and_substitute(old_times_summary, new_times_core_profiles, ids_dict['traces']['line_average.n_e.value'])
 
     # This also secretly rebase. Could turn off this option...
-    dataset_im = rebase_integrated_modelling(dataset_im, ['core_profiles', 'equilibrium'], new_times_core_profiles)
+    dataset_im = update_times_integrated_modelling(dataset_im, ['core_profiles', 'equilibrium'], new_times_core_profiles)
 
 
     # Adding the option of normalizing the initial density to the initial line average density (which might or might not be extrapolated)
@@ -5424,7 +5651,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
 
     #exit()
 
-    put_integrated_modelling(dataset_im, username, db, shot, run, run_target)
+    put_integrated_modelling(dataset_im, db, shot, run, run_target)
 
 
     '''
@@ -5717,7 +5944,7 @@ def add_early_profiles_old(db, shot, run, run_target, db_target = None, shot_tar
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling_old(db, shot, run, run_target, ids_data.ids_struct)
 
 
 # -------------------------------- EXTRA TOOLS TO MAKE THE REST WORK -------------------------------------
