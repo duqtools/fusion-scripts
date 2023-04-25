@@ -38,9 +38,6 @@ if imas is not None:
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
 
-
-
-
 '''
 
 Compare the model or the fit to the experimental data, considering errorbars.
@@ -51,7 +48,40 @@ plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ni'], verb
 
 '''
 
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False):
+def get_title_variable(variable):
+    if variable == 'electron temperature':
+        title_variable = r'$T_e$'
+    elif variable == 'electron density':
+        title_variable = r'$n_e$'
+    elif variable == 'ion temperature':
+        title_variable = r'$T_i$'
+    elif variable == 'impurity density':
+        title_variable = r'$n_C$'
+    else:
+        title_variable = ''
+
+    return title_variable
+
+def get_label_variable(variable):
+    if variable == 'electron temperature':
+        label_variable = r'$T_e$ [KeV]'
+    elif variable == 'electron density':
+        label_variable = r'$n_e$ $[10^{19} m^{-3}]$'
+    elif variable == 'ion temperature':
+        label_variable = r'$T_i$ [KeV]'
+    elif variable == 'impurity density':
+        label_variable = r'$n_C$ $[10^{19} m^{-3}]$'
+    else:
+        label_variable = ''
+
+    return label_variable
+
+
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False, fit_or_model = None):
+
+    title_fontsize = 17
+    label_fontsize = 15
+    legend_fontsize = 13
 
     variable_names = {}
     if 'te' in signals:
@@ -100,8 +130,16 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
         exp_data = get_onesig(core_profiles_exp,variable_names[variable][0],time_begin,time_end=time_end)
         errorbar = get_onesig(core_profiles_exp,variable_names[variable][1],time_begin,time_end=time_end)
 
-        for time in exp_data:
+        if variable == 'electron temperature' or variable == 'ion temperature':
+            for time in exp_data:
+                exp_data[time]['y'] = exp_data[time]['y']*1.0e-3
+                errorbar[time]['y'] = errorbar[time]['y']*1.0e-3
+        elif variable == 'electron density' or variable == 'impurity density':
+            for time in exp_data:
+                exp_data[time]['y'] = exp_data[time]['y']*1.0e-19
+                errorbar[time]['y'] = errorbar[time]['y']*1.0e-19
 
+        for time in exp_data:
             # Clean data that are not in the core
             exp_data[time]['y'] = exp_data[time]['y'][np.where(exp_data[time]['x'] > 1, False, True)]
             errorbar[time]['y'] = errorbar[time]['y'][np.where(exp_data[time]['x'] > 1, False, True)]
@@ -160,6 +198,12 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
             ytable_final.append(ytable_new)
 
+        for ii, ytable_slice in enumerate(ytable_final):
+            if variable == 'electron temperature' or variable == 'ion temperature':
+                ytable_final[ii] = ytable_slice*1.0e-3
+            elif variable == 'electron density' or variable == 'impurity density':
+                ytable_final[ii] = ytable_slice*1.0e-19
+
         #fit_values, exp_values = [], []
         #for itime, time_exp in enumerate(time_vector_exp):
         #    fit_values.append(ytable_final[itime][5])
@@ -172,10 +216,22 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
         if verbose == 2:
             for i, time in enumerate(exp_data):
 
-                plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], linestyle = ' ', label = 'Experiment')
-                plt.plot(exp_data[time]['x'], ytable_final[i], label = 'Fit/Model')
-                plt.title(str(time))
-                plt.legend()
+                # Should change with CX when the quantity is ti and ni
+                plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], linestyle = ' ', label = 'HRTS Experimental data')
+                if fit_or_model == 'Model':
+                    legend_label = 'Integrated modelling'
+                elif fit_or_model == 'Fit':
+                    legend_label = 'Fitted data'
+                else:
+                    legend_label = 'Fit/Model'
+                plt.plot(exp_data[time]['x'], ytable_final[i], label = legend_label)
+                plt.legend(fontsize=legend_fontsize)
+                title_variable = get_title_variable(variable)
+                title = title_variable + ' at t = {time:.3f}'.format(time = time)
+                plt.title(title, fontsize = title_fontsize)
+                plt.xlabel(r'$\rho$ [-]', fontsize = label_fontsize)
+                ylabel_variable  = get_label_variable(variable)
+                plt.ylabel(ylabel_variable, fontsize = label_fontsize)
                 plt.show()
 
         # Calculate error
@@ -186,12 +242,10 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
                 error_time_space.append(abs(y_fit[0] - y_exp)/error_point)
 
             if verbose == 2:
-                if label:
-                    plt.plot(exp_data[time]['x'], error_time_space, 'bo', label = label)
-                else:
-                    plt.plot(exp_data[time]['x'], error_time_space, 'bo')
+                plt.plot(exp_data[time]['x'], error_time_space, 'bo', label = legend_label)
+                title = title_variable + 'error at t =  {time:.3f}'.format(time = time)
                 plt.title(str(time))
-                plt.xlabel(r'\rho [-]')
+                plt.xlabel(r'$\rho$ [-]')
                 plt.ylabel('Error')
                 plt.legend()
                 plt.show()
@@ -223,8 +277,6 @@ def open_and_get_core_profiles_from_run(db, shot, run_name, username=None, backe
 
     username = '/pfs/work/' + username + '/jetto/runs/' + run_name + '/imasdb/'
 
-    print(username)
-
     imas_backend = imasdef.MDSPLUS_BACKEND
     if backend == 'hdf5':
         imas_backend = imasdef.HDF5_BACKEND
@@ -253,6 +305,7 @@ if __name__ == "__main__":
 
     #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
     #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
-    plot_exp_vs_model('tcv', 64862, 5, 'run254test', 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
+    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['te', 'ti', 'ne', 'ni'], verbose = 2)
+    plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
     print('plot and compares experimental data with fits or model')
 
