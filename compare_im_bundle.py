@@ -1,11 +1,17 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
+
+import sys
+sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
+import jetto_tools
+import duqtools
+
 import compare_im_runs
 import prepare_im_input
 import compare_im_exp
 
-from pathlib import Path
 from sawteeth import plot_inversion_radius
 
 '''
@@ -24,7 +30,7 @@ exp_signal_list = ['te', 'ne', 'ti', 'ni']
 def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
 
     # The time compared is the time of the simulation. Still on the experiment time array
-    summary = prepare_im_input.open_and_get_summary(db, shot, run_output)
+    summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
 
     username = os.getenv("USER")
     userlist = [username]
@@ -55,13 +61,39 @@ def get_error(shot, run_input, run_output, signal, time_begin = None, time_end =
 
 def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
 
-    summary = prepare_im_input.open_and_get_summary(db, shot, run_output)
+    summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
     if not time_begin:
         time_begin = min(summary.time) + 0.01
     if not time_end:
         time_end = max(summary.time)
 
-    return(compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0))
+    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0)
+
+    errors = []
+
+    # revert to list format
+    for error in errors_dict.values():
+        errors.append(error)
+
+    return errors
+
+
+def get_exp_error_time(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
+
+    summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
+    if not time_begin:
+        time_begin = min(summary.time) + 0.01
+    if not time_end:
+        time_end = max(summary.time)
+
+    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0)
+
+    errors_time = []
+    #revert to list format
+    for error_time in errors_time_dict.values():
+        errors_time.append(error_time)
+
+    return errors_time
 
 
 def get_sawteeth_error(shot, run_output, saw_file_path = None, time_begin = None, time_end = None, db = 'tcv'):
@@ -78,6 +110,89 @@ def get_sawteeth_error(shot, run_output, saw_file_path = None, time_begin = None
         return(0)
 
     return plot_inversion_radius(db, shot, run_output, saw_file_path, time_start = time_begin, time_end = time_end)
+
+
+# WORK IN PROGRESS
+
+def plot_errors_time(filename, signals, time_begin = None, time_end = None):
+
+    '''
+
+    filename is the name of the file where the runs are stored
+
+    '''
+
+    file_runs = open(filename, 'r')
+    lines = file_runs.readlines()
+    db, shot, run_exp = lines[0].split(' ')
+    shot, run_exp = int(shot), int(run_exp)
+
+    labels, runs_output = [], []
+    for line in lines[1:]:
+        line = line.replace('\n','')
+        if '|' in lines[1]:
+            labels.append(line.split('|')[-1])
+            line = line.split('|')[0]
+        else:
+            labels.append(line)
+
+        runs_output.append(line)
+
+    print(runs_output)
+
+    core_profiles_exp = compare_im_exp.open_and_get_ids(db, shot, 'core_profiles', run_exp)
+
+    t_cxrs = compare_im_exp.get_t_cxrs(core_profiles_exp)
+    t_cxrs = compare_im_exp.filter_time_range(t_cxrs, time_begin, time_end)
+
+    fig, ax, num_columns = create_subplots(signals)
+
+    for isignal, signal in enumerate(signals):
+
+        icolumns = int(isignal/num_columns)
+        iraws = isignal % num_columns
+
+        #labels = shot_list
+
+        all_exp_data = compare_im_exp.get_exp_data(db, shot, run_exp, time_begin, time_end, signal)
+        exp_data, errorbar, time_vector_exp = compare_im_exp.get_exp_data_and_errorbar(all_exp_data, t_cxrs, list(all_exp_data.keys())[0])
+
+        errors = []
+        for run_output in runs_output:
+            errors.append(get_exp_error_time(shot, run_exp, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+
+        for error, legend_label in zip(errors, labels):
+            ax[icolumns][iraws].plot(time_vector_exp, error, label=legend_label)
+            #plt.plot(time_vector_exp, error, label=legend_label)
+
+        variable = compare_im_exp.get_variable_names(signal)
+        title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
+        title = 'Normalized error for ' + title_variable
+
+        ax[icolumns][iraws].set_title(title)
+        ax[icolumns][iraws].legend()
+        ax[icolumns][iraws].set_xlabel(r'time [s]')
+        ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]')
+        fig.tight_layout()
+
+    plt.show()
+
+
+def create_subplots(signal_list):
+    if len(signal_list) == 1:
+        fig, ax = plt.subplots(1,1)
+        ax, num_columns = [[ax]], 1
+    elif len(signal_list) == 2:
+        fig, ax = plt.subplots(1,2)
+        ax, num_columns = [ax], 2
+    elif len(signal_list) == 3:
+        fig, ax = plt.subplots(1,3)
+        ax, num_columns = [ax], 3
+    elif len(signal_list) == 4:
+        fig, ax = plt.subplots(2,2)
+        num_columns = 2
+
+    return fig, ax, num_columns
 
 
 def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
@@ -193,5 +308,7 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
 
 
 if __name__ == "__main__":
+    plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
+    #plot_errors_time('runlist_test.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
     print('for scripting directly')
 
