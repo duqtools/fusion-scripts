@@ -90,7 +90,7 @@ def get_variable_names(signals):
     if 'ti' in signals:
         variable_names['ion temperature'] = [
             'core_profiles.profiles_1d[].t_i_average_fit.measured',
-            'core_profiles.profiles.profiles_1d[].t_i_average_fit.measured_error_upper',
+            'core_profiles.profiles_1d[].t_i_average_fit.measured_error_upper',
             'core_profiles.profiles_1d[].t_i_average'
     ]
     if 'ni' in signals:
@@ -104,6 +104,7 @@ def get_variable_names(signals):
 
 
 def clean_exp_data(exp_data, errorbar):
+    time_keys_to_remove = []
     for time in exp_data:
 
         # Clean data that are not in the core
@@ -126,6 +127,21 @@ def clean_exp_data(exp_data, errorbar):
         errorbar[time]['y'] = errorbar[time]['y'][~mask]
         errorbar[time]['x'] = errorbar[time]['x'][~mask]
 
+        # Clean experimental data when errobars are too small (polluted data)
+        mask = errorbar[time]['y'] < 1.0e-10
+        exp_data[time]['y'] = exp_data[time]['y'][~mask]
+        exp_data[time]['x'] = exp_data[time]['x'][~mask]
+        errorbar[time]['y'] = errorbar[time]['y'][~mask]
+        errorbar[time]['x'] = errorbar[time]['x'][~mask]
+
+        if len(exp_data[time]['y']) == 0 or len(errorbar[time]['y']) == 0:
+            time_keys_to_remove.append(time)
+
+    #Remove times that end up being empty
+    for time in time_keys_to_remove:
+        exp_data.pop(time)
+        errorbar.pop(time)
+
     return exp_data, errorbar
 
 def scale_exp_data(exp_data, var):
@@ -141,19 +157,35 @@ def scale_exp_data(exp_data, var):
 def scale_model_data(ytable_final, var):
     for ii, ytable_slice in enumerate(ytable_final):
         if var == 'electron temperature' or var == 'ion temperature':
-            ytable_final[ii] = ytable_slice*1.0e-3
+            try:
+                ytable_final[ii] = ytable_slice*1.0e-3
+            except TypeError:
+                print('No experimental data available for slice number ' + str(ii) + '. Aborting')
+                exit()
         elif var == 'electron density' or var == 'impurity density':
-            ytable_final[ii] = ytable_slice*1.0e-19
+            try:
+                ytable_final[ii] = ytable_slice*1.0e-19
+            except TypeError:
+                print('No experimental data available for slice number ' + str(ii) + '. Aborting')
+                exit()
 
     return ytable_final
 
 def get_exp_data(db, shot, run, time_begin, time_end, signals):
     exp_data = {}
     variable_names = get_variable_names(signals)
-    core_profiles_exp = open_and_get_core_profiles(db, shot, run)
+    core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run)
     for variable in variable_names:
         data = get_onesig(core_profiles_exp, variable_names[variable][0], time_begin, time_end=time_end)
-        errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
+        #errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
+        try:
+            errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
+        except OSError:
+            errorbar = copy.deepcopy(data)
+            for time in data:
+                errorbar[time]['x'] = data[time]['x']
+                errorbar[time]['y'] = data[time]['y']/5
+            print('Careful! Generating dummy errors for ' + variable + ' since experimetal errors are not available')
 
         data, errorbar = clean_exp_data(data, errorbar)
 
@@ -172,20 +204,20 @@ def filter_time_range(t_cxrs, time_begin, time_end):
 
 
 def get_closest_times(exp_data, t_cxrs):
-    time_vector_exp = np.asarray(list(exp_data.keys()))
-    exp_data_new, errorbar_new = {}, {}
+    time_vector_exp = np.asarray(list(exp_data['data'].keys()))
+    exp_data_new = {'data': {}, 'errorbar': {}}
     for time_cxrs in t_cxrs:
         time_closest = time_vector_exp[np.abs(time_vector_exp - time_cxrs).argmin(0)]
-        exp_data_new[time_cxrs] = exp_data[time_closest]['data']
-        errorbar_new[time_cxrs] = exp_data[time_closest]['errorbar']
+
+        exp_data_new['data'][time_cxrs] = exp_data['data'][time_closest]
+        exp_data_new['errorbar'][time_cxrs] = exp_data['errorbar'][time_closest]
+
     exp_data = exp_data_new
-    errorbar = errorbar_new
     time_vector_exp = np.unique(t_cxrs)
-    for time in time_vector_exp:
-        errorbar[time]['y'] = errorbar[time]['y'] - exp_data[time]['y']
+    #for time in time_vector_exp:
+    #    exp_data['data'][time]['y'] = exp_data['errorbar'][time]['y'] - exp_data['data'][time]['y']
 
-    return exp_data, errorbar, time_vector_exp
-
+    return exp_data['data'], exp_data['errorbar'], time_vector_exp
 
 def get_t_cxrs(core_profiles_exp):
     """
@@ -270,6 +302,7 @@ def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model
 
 def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose):
     error_time = []
+    error_time_space_all = []
     for i, time in enumerate(exp_data):
         error_time_space = []
         for y_fit, y_exp, error_point in zip(ytable_final[i], exp_data[time]['y'], errorbar[time]['y']):
@@ -287,16 +320,20 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
             plt.show()
 
         error_time.append(sum(error_time_space) / len(exp_data[time]['y']))
+        error_time_space_all.append(error_time_space)
 
     if verbose == 1 or verbose == 2:
+        title_variable = get_title_variable(variable)
+        if not label:
+            label = 'Time dependent error'
         plt.plot(time_vector_exp, error_time, label=label)
-        plt.title(variable)
+        plt.title(title_variable)
         plt.xlabel(r't [s]')
         plt.ylabel('Error')
         plt.legend()
         plt.show()
 
-    return error_time, error_time_space
+    return error_time, error_time_space_all
 
 def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False, fit_or_model = None):
 
@@ -322,15 +359,15 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
     variable_names = get_variable_names(signals)
 
-    core_profiles_exp = open_and_get_core_profiles(db, shot, run_exp)
-    core_profiles_model = open_and_get_core_profiles(db, shot, run_model)
+    core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp)
+    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model)
 
     t_cxrs = get_t_cxrs(core_profiles_exp)
     t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
 
     all_exp_data = get_exp_data(db, shot, run_exp, time_begin, time_end, signals)
 
-    errors = []
+    errors, errors_time = {}, {}
 
     for variable in all_exp_data:
 
@@ -343,21 +380,22 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
         ytable_final = generate_ytable(time_vector_exp, time_vector_fit, fit, exp_data, fit_and_substitute, variable)
         ytable_final = scale_model_data(ytable_final, variable)
 
-
         # Plotting routines
-        plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                            title_fontsize, label_fontsize)
+        if verbose:
+            plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
+                                title_fontsize, label_fontsize)
         error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose)
 
-
         error_variable = sum(error_time)/len(exp_data)
-        errors.append(error_variable)
+        errors[variable] = error_variable
+        errors_time[variable] = error_time
+
         print('The error for ' + variable + ' is ' + str(error_variable))
 
-    return(errors)
+    return(errors, errors_time)
 
 
-def open_and_get_core_profiles(db, shot, run=None, username=None, backend='mdsplus'):
+def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdsplus'):
     if not username:
         username = getpass.getuser()
 
@@ -379,17 +417,20 @@ def open_and_get_core_profiles(db, shot, run=None, username=None, backend='mdspl
     elif op[0] == 0:
         print("data entry opened")
 
-    core_profiles = data_entry.get('core_profiles')
+    ids = data_entry.get(ids_name)
     data_entry.close()
 
-    return core_profiles
+    return ids
 
 
 if __name__ == "__main__":
     #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
     #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
+    #plot_exp_vs_model('tcv', 64770, 1, 1, 0.7, 0.9, signals = ['ne'], verbose = 2, fit_or_model = 'fit')
+    plot_exp_vs_model('tcv', 64770, 2, 'run_64770_zeff', 0.7, 0.8, signals = ['ti'], verbose = 2, fit_or_model = 'Model')
     #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['te', 'ti', 'ne', 'ni'], verbose = 2)
-    plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
+    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
+    #plot_exp_vs_model('tcv', 64965, 5, 'run465_64965_ohmic_predictive6', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
     print('plot and compares experimental data with fits or model')
 
 
