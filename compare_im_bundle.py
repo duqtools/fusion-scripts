@@ -1,4 +1,5 @@
 import os
+import getpass
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -112,8 +113,6 @@ def get_sawteeth_error(shot, run_output, saw_file_path = None, time_begin = None
     return plot_inversion_radius(db, shot, run_output, saw_file_path, time_start = time_begin, time_end = time_end)
 
 
-# WORK IN PROGRESS
-
 def plot_errors_time(filename, signals, time_begin = None, time_end = None):
 
     '''
@@ -122,23 +121,7 @@ def plot_errors_time(filename, signals, time_begin = None, time_end = None):
 
     '''
 
-    file_runs = open(filename, 'r')
-    lines = file_runs.readlines()
-    db, shot, run_exp = lines[0].split(' ')
-    shot, run_exp = int(shot), int(run_exp)
-
-    labels, runs_output = [], []
-    for line in lines[1:]:
-        line = line.replace('\n','')
-        if '|' in lines[1]:
-            labels.append(line.split('|')[-1])
-            line = line.split('|')[0]
-        else:
-            labels.append(line)
-
-        runs_output.append(line)
-
-    print(runs_output)
+    db, shot, run_exp, labels, runs_output = read_file_time_dep(filename)
 
     core_profiles_exp = compare_im_exp.open_and_get_ids(db, shot, 'core_profiles', run_exp)
 
@@ -165,7 +148,7 @@ def plot_errors_time(filename, signals, time_begin = None, time_end = None):
             ax[icolumns][iraws].plot(time_vector_exp, error, label=legend_label)
             #plt.plot(time_vector_exp, error, label=legend_label)
 
-        variable = compare_im_exp.get_variable_names(signal)
+        variable = compare_im_exp.get_variable_names_exp(signal)
         title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
         title = 'Normalized error for ' + title_variable
 
@@ -174,6 +157,101 @@ def plot_errors_time(filename, signals, time_begin = None, time_end = None):
         ax[icolumns][iraws].set_xlabel(r'time [s]')
         ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]')
         fig.tight_layout()
+
+    plt.show()
+
+def separate_signal_lists(signals):
+
+    exp_signal_list_all = ['te', 'ti', 'ne', 'ni']
+
+    exp_signals, mod_signals = [], []
+    for signal in signals:
+        if signal in exp_signal_list_all:
+            exp_signals.append(signal)
+        else:
+            mod_signals.append(signal)
+
+    return exp_signals, mod_signals
+
+
+def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None):
+
+    # Ideally want to use the other functions, but I cannot figure out how to use the axes that way...
+    if not username: username=getpass.getuser()
+    exp_signals, mod_signals = separate_signal_lists(signals)
+    fig, ax, num_columns = create_subplots(signals)
+
+    db, shot, run_exp, labels, runs_output = read_file_time_dep(filename)
+
+    core_profiles_exp = compare_im_exp.open_and_get_ids(db, shot, 'core_profiles', run_exp)
+    t_cxrs = compare_im_exp.get_t_cxrs(core_profiles_exp)
+    t_cxrs = compare_im_exp.filter_time_range(t_cxrs, time_begin, time_end)
+
+    variables = compare_im_exp.get_variable_names(mod_signals)
+
+    ylabels, titles = {}, {}
+    if not signals: signals = []
+    for key in variables:
+        mod_signals.remove(key)
+        mod_signals.append(variables[key][0])
+        signals.remove(key)
+        signals.append(variables[key][0])
+        ylabels[variables[key][0]] = compare_im_exp.get_label_variable(key)
+        titles[variables[key][0]] = compare_im_exp.get_title_variable(key)
+
+    idslist = generate_ids_list(username, db, shot, run_exp, runs_output)
+    data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, mod_signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
+
+    options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
+    time_error_dict = compare_im_runs.perform_time_trace_analysis(data_dict, **options_trace)
+    profile_error_dict = compare_im_runs.perform_profile_analysis(data_dict, **options_profile)
+
+    for isignal, signame in enumerate(signals):
+        icolumns = int(isignal/num_columns)
+        iraws = isignal % num_columns
+
+        if signame in mod_signals:
+            #value_when_true if condition else value_when_false
+            title = titles[signame] if signame in titles else signame
+            ylabel = ylabels[signame] if signame in ylabels else signame
+
+            if signame+'.absolute_error.t' in time_error_dict:
+                for run, label in zip(time_error_dict[signame+'.absolute_error'], labels):
+                    ax[icolumns][iraws].plot(time_error_dict[signame+'.absolute_error.t'], time_error_dict[signame+'.absolute_error'][run].flatten(), label=label)
+            elif signame+'.average_absolute_error.t' in profile_error_dict:
+                for run, label in zip(profile_error_dict[signame+'.average_absolute_error'], labels):
+                    ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_absolute_error.t'], profile_error_dict[signame+'.average_absolute_error'][run].flatten(), label=label)
+            else:
+                print('signal ' + signame + ' not recognized, aborting')
+
+            ax[icolumns][iraws].set_title(title)
+            ax[icolumns][iraws].legend(loc='best')
+            ax[icolumns][iraws].set_xlabel(r'time [s]')
+            ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel)
+
+        elif signame in exp_signals:
+
+            all_exp_data = compare_im_exp.get_exp_data(db, shot, run_exp, time_begin, time_end, signame)
+            exp_data, errorbar, time_vector_exp = compare_im_exp.get_exp_data_and_errorbar(all_exp_data, t_cxrs, list(all_exp_data.keys())[0])
+
+            errors = []
+            for run_output in runs_output:
+                errors.append(get_exp_error_time(shot, run_exp, run_output, signame, time_begin = time_begin, time_end = time_end)[0])
+
+            for error, legend_label in zip(errors, labels):
+                ax[icolumns][iraws].plot(time_vector_exp, error, label=legend_label)
+
+            variable = compare_im_exp.get_variable_names_exp(signame)
+            title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
+            title = 'Normalized error for ' + title_variable
+
+            ax[icolumns][iraws].set_title(title)
+            ax[icolumns][iraws].legend()
+            ax[icolumns][iraws].set_xlabel(r'time [s]')
+            ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]')
+        else:
+            print('signal not recognized. Aborting')
+            exit()
 
     plt.show()
 
@@ -191,9 +269,101 @@ def create_subplots(signal_list):
     elif len(signal_list) == 4:
         fig, ax = plt.subplots(2,2)
         num_columns = 2
+    elif len(signal_list) == 5:
+        fig, ax = plt.subplots(1,5)
+        num_columns = 1
+    elif len(signal_list) == 6:
+        fig, ax = plt.subplots(2,3)
+        num_columns = 2
+
 
     return fig, ax, num_columns
 
+
+def read_file_time_dep(filename):
+
+    file_runs = open(filename, 'r')
+    lines = file_runs.readlines()
+    db, shot, run_exp = lines[0].split(' ')
+    shot, run_exp = int(shot), int(run_exp)
+
+    labels, runs_output = [], []
+    for line in lines[1:]:
+        line = line.replace('\n','')
+        if '|' in lines[1]:
+            labels.append(line.split('|')[-1])
+            line = line.split('|')[0]
+        else:
+            labels.append(line)
+
+        runs_output.append(line)
+
+    return db, shot, run_exp, labels, runs_output
+
+
+def generate_ids_list(username, db, shot, run_exp, runs_output):
+
+    #The reference ids, which should be experimental data, goes first
+    idslist = [f'{username}/{db}/{shot}/{run_exp}']
+    for run in runs_output:
+        if type(run) is int:
+            ids = f'{username}/{db}/{shot}/{run}'
+        elif type(run) is str:
+            ids = user_name = f'/pfs/work/{username}/jetto/runs/{run}/imasdb/{db}/{shot}/2'
+        else:
+            print('run of type ' + str(type(run)) + ' is not supported. Aborting')
+
+        idslist.append(ids)
+
+    return idslist
+
+
+def plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
+
+    db, shot, run_exp, labels, runs_output = read_file_time_dep(filename)
+    if not username: username=getpass.getuser()
+
+    variables = compare_im_exp.get_variable_names(signals)
+
+    ylabels, titles = {}, {}
+    if not signals: signals = []
+    for key in variables:
+        signals.remove(key)
+        signals.append(variables[key][0])
+        ylabels[variables[key][0]] = compare_im_exp.get_label_variable(key)
+        titles[variables[key][0]] = compare_im_exp.get_title_variable(key)
+
+    fig, ax, num_columns = create_subplots(signals)
+    idslist = generate_ids_list(username, db, shot, run_exp, runs_output)
+    data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
+
+    options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
+    time_error_dict = compare_im_runs.perform_time_trace_analysis(data_dict, **options_trace)
+    profile_error_dict = compare_im_runs.perform_profile_analysis(data_dict, **options_profile)
+
+    for isignal, signame in enumerate(signals):
+        icolumns = int(isignal/num_columns)
+        iraws = isignal % num_columns
+
+        title = titles[signame] if signame in titles else signame
+        ylabel = ylabels[signame] if signame in ylabels else signame
+
+        if signame+'.absolute_error.t' in time_error_dict:
+            for run, label in zip(time_error_dict[signame+'.absolute_error'], labels):
+                ax[icolumns][iraws].plot(time_error_dict[signame+'.absolute_error.t'], time_error_dict[signame+'.absolute_error'][run].flatten(), label=label)
+        elif signame+'.average_absolute_error.t' in profile_error_dict:
+            for run, label in zip(profile_error_dict[signame+'.average_absolute_error'], labels):
+                ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_absolute_error.t'], profile_error_dict[signame+'.average_absolute_error'][run].flatten(), label=label)
+        else:
+            print('signal ' + signame + ' not recognized, aborting')
+
+        ax[icolumns][iraws].set_title(title)
+        ax[icolumns][iraws].legend(loc='best')
+        ax[icolumns][iraws].set_xlabel(r'time [s]')
+        ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel)
+        #fig.tight_layout()
+
+    plt.show()
 
 def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
 
@@ -224,19 +394,7 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
     run_output_list = np.asarray(run_output_list).reshape(len(lines)-1, num_run_series)
 
     # Pre deciding the structure of the plots with the various possibilities of len(signal_list)
-
-    if len(signal_list) == 1:
-        fig, ax = plt.subplots(1,1)
-        ax, num_columns = [[ax]], 1
-    elif len(signal_list) == 2:
-        fig, ax = plt.subplots(1,2)
-        ax, num_columns = [ax], 1
-    elif len(signal_list) == 3:
-        fig, ax = plt.subplots(1,3)
-        ax, num_columns = [ax], 1
-    elif len(signal_list) == 4:
-        fig, ax = plt.subplots(2,2)
-        num_columns = 2
+    fig, ax, num_columns = create_subplots(signal_list)
 
     if plot_type == 1:
         for isignal, signal in enumerate(signal_list):
@@ -308,7 +466,12 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
 
 
 if __name__ == "__main__":
-    plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runs_list_show.txt', ['summary.global_quantities.v_loop.value', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 1)
+    #plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
     #plot_errors_time('runlist_test.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
-    print('for scripting directly')
+    #plot_errors_traces('runlist_test.txt', ['summary.global_quantities.v_loop.value', 'summary.global_quantities.ip.value'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
+    #plot_errors_traces('runlist_test.txt', ['vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
+    #print('for scripting directly')
+
+    plot_all_traces('runlist_test.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
 
