@@ -50,6 +50,13 @@ def get_title_variable(variable):
         return r'$T_i$'
     elif variable == 'impurity density':
         return r'$n_C$'
+    elif variable == 'vloop':
+        return r'$V_{loop}$'
+    elif variable == 'li3':
+        return r'$li_{3}$'
+    elif variable == 'ip':
+        return r'$I_{p}$'
+
     else:
         return ''
 
@@ -66,13 +73,20 @@ def get_label_variable(variable):
         return r'$T_i$ [KeV]'
     elif variable == 'impurity density':
         return r'$n_C$ $[10^{19} m^{-3}]$'
+    elif variable == 'vloop':
+        return r'$V_{loop}$ $ [V] $'
+    elif variable == 'li3':
+        return r'$li_{3}$ $ [-] $'
+    elif variable == 'ip':
+        return r'$I_{p}$ $ [A] $'
+
     else:
         return ''
 
 
-def get_variable_names(signals):
+def get_variable_names_exp(signals):
     """
-    Get the variable names for a list of signals.
+    Get the variable names for a list of signals for experimental quantities
     """
     variable_names = {}
     if 'te' in signals:
@@ -98,6 +112,27 @@ def get_variable_names(signals):
             'core_profiles.profiles_1d[].ion[1].density_fit.measured',
             'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper',
             'core_profiles.profiles_1d[].ion[1].density'
+    ]
+
+    return variable_names
+
+
+def get_variable_names(signals):
+    """
+    Get the variable names for a list of signals for other time traces without the error explicitly
+    """
+    variable_names = {}
+    if 'vloop' in signals:
+        variable_names['vloop'] = [
+            'summary.global_quantities.v_loop.value'
+    ]
+    if 'li3' in signals:
+        variable_names['li3'] = [
+            'equilibrium.time_slice[].global_quantities.li_3'
+    ]
+    if 'ip' in signals:
+        variable_names['ip'] = [
+            'summary.global_quantities.ip.value'
     ]
 
     return variable_names
@@ -173,8 +208,9 @@ def scale_model_data(ytable_final, var):
 
 def get_exp_data(db, shot, run, time_begin, time_end, signals):
     exp_data = {}
-    variable_names = get_variable_names(signals)
+    variable_names = get_variable_names_exp(signals)
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run)
+
     for variable in variable_names:
         data = get_onesig(core_profiles_exp, variable_names[variable][0], time_begin, time_end=time_end)
         #errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
@@ -203,6 +239,16 @@ def filter_time_range(t_cxrs, time_begin, time_end):
     return t_cxrs[mask]
 
 
+def delete_meaningless_data_cxrs(data, errorbar, time_cxrs):
+
+    mask = errorbar[time_cxrs]['y'] < data[time_cxrs]['y']
+    data[time_cxrs]['x'] = data[time_cxrs]['x'][mask]
+    data[time_cxrs]['y'] = data[time_cxrs]['y'][mask]
+    errorbar[time_cxrs]['x'] = errorbar[time_cxrs]['x'][mask]
+    errorbar[time_cxrs]['y'] = errorbar[time_cxrs]['y'][mask]
+
+    return data, errorbar
+
 def get_closest_times(exp_data, t_cxrs):
     time_vector_exp = np.asarray(list(exp_data['data'].keys()))
     exp_data_new = {'data': {}, 'errorbar': {}}
@@ -212,10 +258,21 @@ def get_closest_times(exp_data, t_cxrs):
         exp_data_new['data'][time_cxrs] = exp_data['data'][time_closest]
         exp_data_new['errorbar'][time_cxrs] = exp_data['errorbar'][time_closest]
 
+        exp_data_new['data'][time_cxrs], exp_data_new['errorbar'][time_cxrs] 
+        mask = exp_data_new['errorbar'][time_cxrs]['y']<exp_data_new['data'][time_cxrs]['y']
+        exp_data_new['data'][time_cxrs]['x'] = exp_data_new['data'][time_cxrs]['x'][mask]
+        exp_data_new['data'][time_cxrs]['y'] = exp_data_new['data'][time_cxrs]['y'][mask]
+        exp_data_new['errorbar'][time_cxrs]['x'] = exp_data_new['errorbar'][time_cxrs]['x'][mask]
+        exp_data_new['errorbar'][time_cxrs]['y'] = exp_data_new['errorbar'][time_cxrs]['y'][mask]
+
     exp_data = exp_data_new
     time_vector_exp = np.unique(t_cxrs)
-    #for time in time_vector_exp:
-    #    exp_data['data'][time]['y'] = exp_data['errorbar'][time]['y'] - exp_data['data'][time]['y']
+
+    # Backward compatibility since Ti was stored sligtly differently in old IDSs
+    old = False
+    if old:
+        for time in time_vector_exp:
+            exp_data['errorbar'][time]['y'] = exp_data['errorbar'][time]['y'] - exp_data['data'][time]['y']
 
     return exp_data['data'], exp_data['errorbar'], time_vector_exp
 
@@ -357,7 +414,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     label_fontsize = 15
     legend_fontsize = 13
 
-    variable_names = get_variable_names(signals)
+    variable_names = get_variable_names_exp(signals)
 
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp)
     core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model)
@@ -427,10 +484,12 @@ if __name__ == "__main__":
     #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
     #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
     #plot_exp_vs_model('tcv', 64770, 1, 1, 0.7, 0.9, signals = ['ne'], verbose = 2, fit_or_model = 'fit')
-    plot_exp_vs_model('tcv', 64770, 2, 'run_64770_zeff', 0.7, 0.8, signals = ['ti'], verbose = 2, fit_or_model = 'Model')
+    #plot_exp_vs_model('tcv', 64965, 6, 'run460_ohmic_predictive2', 0.1, 0.3, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
     #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['te', 'ti', 'ne', 'ni'], verbose = 2)
     #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
     #plot_exp_vs_model('tcv', 64965, 5, 'run465_64965_ohmic_predictive6', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
+    #plot_exp_vs_model('tcv', 64965, 2, 'run115_64965_run_ohmic_predictive', 0.03, 0.33, signals = ['ne','te'], verbose = 2, fit_or_model = 'Model')
+    plot_exp_vs_model('tcv', 64965, 2, 'run115_64965_run_ohmic_predictive', 0.03, 0.23, signals = ['ti'], verbose = 2, fit_or_model = 'Model')
     print('plot and compares experimental data with fits or model')
 
 
