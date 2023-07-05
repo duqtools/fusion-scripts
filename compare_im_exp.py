@@ -13,6 +13,9 @@ from IPython import display
 import argparse
 from compare_im_runs import *
 from packaging import version
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
+from scipy.spatial.distance import pdist
+
 
 # Minimum versions of IMAS and IMAS-AL required
 MIN_IMAS_VERSION = version.parse("3.28.0")
@@ -128,7 +131,8 @@ def get_variable_names(signals):
     ]
     if 'li3' in signals:
         variable_names['li3'] = [
-            'equilibrium.time_slice[].global_quantities.li_3'
+            #'equilibrium.time_slice[].global_quantities.li_3'
+            'summary.global_quantities.li.value'
     ]
     if 'ip' in signals:
         variable_names['ip'] = [
@@ -150,24 +154,15 @@ def clean_exp_data(exp_data, errorbar):
 
         # Clean experimental data that were not filled properly
         mask = exp_data[time]['y'] < -0
-        exp_data[time]['y'] = exp_data[time]['y'][~mask]
-        exp_data[time]['x'] = exp_data[time]['x'][~mask]
-        errorbar[time]['y'] = errorbar[time]['y'][~mask]
-        errorbar[time]['x'] = errorbar[time]['x'][~mask]
+        exp_data, errorbar = apply_mask(exp_data, errorbar, time, mask)
 
         # Clean experimental data that are filled with nans
         mask = np.isnan(exp_data[time]['y'])
-        exp_data[time]['y'] = exp_data[time]['y'][~mask]
-        exp_data[time]['x'] = exp_data[time]['x'][~mask]
-        errorbar[time]['y'] = errorbar[time]['y'][~mask]
-        errorbar[time]['x'] = errorbar[time]['x'][~mask]
+        exp_data, errorbar = apply_mask(exp_data, errorbar, time, mask)
 
         # Clean experimental data when errobars are too small (polluted data)
         mask = errorbar[time]['y'] < 1.0e-10
-        exp_data[time]['y'] = exp_data[time]['y'][~mask]
-        exp_data[time]['x'] = exp_data[time]['x'][~mask]
-        errorbar[time]['y'] = errorbar[time]['y'][~mask]
-        errorbar[time]['x'] = errorbar[time]['x'][~mask]
+        exp_data, errorbar = apply_mask(exp_data, errorbar, time, mask)
 
         if len(exp_data[time]['y']) == 0 or len(errorbar[time]['y']) == 0:
             time_keys_to_remove.append(time)
@@ -178,6 +173,136 @@ def clean_exp_data(exp_data, errorbar):
         errorbar.pop(time)
 
     return exp_data, errorbar
+
+
+def find_distances_double(errorbars, datas, min_errorbar, min_data):
+
+    distances = []
+    for errorbar, data in zip(errorbars, datas):
+        distances.append(np.sqrt(np.square(errorbar - min_errorbar) + np.square(data - min_data)))
+
+    return np.asarray(distances)
+
+
+def find_distances(errorbars, min_errorbar):
+
+    distances = np.abs(errorbars - min_errorbar)
+
+    return distances
+
+def extract_data_from_ydict(data):
+
+    all_data = np.asarray([])
+    for inner_dict in data.values():
+        all_data = np.hstack((all_data, inner_dict['y']))
+
+    return all_data
+
+
+def build_normalized_data(data):
+
+    # Exctract all the data
+    all_data = extract_data_from_ydict(data)
+
+    # delete repeated data for CX. Careful, this also orders the data
+    all_data =  np.unique(all_data)
+
+    #Normalize data
+    ave_data = np.average(all_data)
+    all_data = all_data/ave_data
+
+    return all_data, ave_data
+
+
+def smooth_array(arr, window_size):
+    # Pad the array to handle edges
+    padded_arr = np.pad(arr, (window_size // 2, window_size // 2), mode='edge')
+
+    # Calculate the moving average using convolution
+    smoothed_arr = np.convolve(padded_arr, np.ones(window_size) / window_size, mode='valid')
+
+    return smoothed_arr
+
+
+def find_max_distance(distances):
+
+    # Deletes the largest distances that could skew the average
+    distances = distances[:-10]
+
+    ddist = np.diff(distances)
+    ddist = smooth_array(ddist, 10)
+
+    ddist_ave = np.average(ddist)
+
+    index = np.argmax(ddist > ddist_ave)
+    max_distance = distances[index]
+
+    return max_distance
+
+
+def find_ave_minimum(data):
+
+    lower_chunk_length = np.size(data)//10
+    #Finds the minimum but averages over the first few minimas
+    sorted_arr = np.sort(data)  # Sort the array in ascending order
+    lowest_chunk = sorted_arr[:lower_chunk_length]  # Get the lowest elements averaging over a tenth of the data
+    avg = np.mean(lowest_chunk)  # Calculate the average
+
+    return avg
+
+
+def filter_large_errorbars(exp_data, errorbar, var):
+
+    # Filtering data when errorbars are too large. Numbers are arbitrary and extracted from a Yann Camenen script.
+    # Might be changed or could find a way to calculate 'too large' automatically
+
+    if var == 'electron temperature' or var == 'ion temperature':
+        max_errorbars = 100
+    elif var == 'electron density':
+        max_errorbars = 2e19
+    elif var == 'impurity density':
+        max_errorbars = 0.7e17
+        #max_errorbars = 100e17
+
+    for time in exp_data:
+
+        # Finds the mask
+        mask = errorbar[time]['y'] > max_errorbars
+        exp_data, errorbar = apply_mask(exp_data, errorbar, time, mask)
+
+    return exp_data, errorbar
+
+def special_filter_errorbars(exp_data, errorbar, var):
+
+    # Special parameter, quite arbitrary, to try not to filter too much data
+    mult = 1.0
+
+    # Apply only to impurity density
+    all_errorbars, ave_errorbars = build_normalized_data(errorbar)
+    min_errorbar = find_ave_minimum(all_errorbars)
+    distances = find_distances(all_errorbars, min_errorbar)
+    max_distance = mult*find_max_distance(distances)
+
+    for time in exp_data:
+        # Finds the mask
+        normalized_errorbar = errorbar[time]['y']/ave_errorbars
+        distances = find_distances(normalized_errorbar, min_errorbar)
+        mask = distances > max_distance
+       
+        exp_data, errorbar = apply_mask(exp_data, errorbar, time, mask)
+
+    return exp_data, errorbar
+
+
+def apply_mask(exp_data, errorbar, time, mask):
+
+    exp_data[time]['y'] = exp_data[time]['y'][~mask]
+    exp_data[time]['x'] = exp_data[time]['x'][~mask]
+    errorbar[time]['y'] = errorbar[time]['y'][~mask]
+    errorbar[time]['x'] = errorbar[time]['x'][~mask]
+
+    return exp_data, errorbar
+
 
 def scale_exp_data(exp_data, var):
     if var == 'electron temperature' or var == 'ion temperature':
@@ -200,13 +325,14 @@ def scale_model_data(ytable_final, var):
         elif var == 'electron density' or var == 'impurity density':
             try:
                 ytable_final[ii] = ytable_slice*1.0e-19
+                #ytable_final[ii] = ytable_slice*1.0
             except TypeError:
                 print('No experimental data available for slice number ' + str(ii) + '. Aborting')
                 exit()
 
     return ytable_final
 
-def get_exp_data(db, shot, run, time_begin, time_end, signals):
+def get_exp_data(db, shot, run, time_begin, time_end, signals, apply_special_filter = False):
     exp_data = {}
     variable_names = get_variable_names_exp(signals)
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run)
@@ -224,6 +350,10 @@ def get_exp_data(db, shot, run, time_begin, time_end, signals):
             print('Careful! Generating dummy errors for ' + variable + ' since experimetal errors are not available')
 
         data, errorbar = clean_exp_data(data, errorbar)
+        if apply_special_filter and variable == 'impurity density':
+            data, errorbar = special_filter_errorbars(data, errorbar, variable)
+        else:
+            data, errorbar = filter_large_errorbars(data, errorbar, variable)
 
         data = scale_exp_data(data, variable)
         errorbar = scale_exp_data(errorbar, variable)
@@ -338,13 +468,27 @@ def get_legend_label(fit_or_model):
 
     return legend_label
 
+
+def get_legend_label_experimental(variable):
+
+    if variable == 'electron temperature' or variable == 'electron density':
+        legend_label = 'HRTS Experimental data'
+    elif variable == 'ion temperature' or variable == 'impurity density':
+        legend_label = 'CXRS Experimental data'
+
+    return legend_label
+
+
+#Show_fit does not do anazthing tight now. Will decide if I want to implement the fit as well later.\
+#It is already working in compare bundle and maybe it belongs there
 def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                        title_fontsize, label_fontsize):
+                        title_fontsize, label_fontsize, show_fit = False):
     title_variable = get_title_variable(variable)
 
     for i, time in enumerate(exp_data):
-        plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], linestyle=' ',
-                     label='HRTS Experimental data')
+        legend_label = get_legend_label_experimental(variable)
+        plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], fmt='.', linestyle=' ',
+                     label=legend_label)
         legend_label = get_legend_label(fit_or_model)
         plt.plot(exp_data[time]['x'], ytable_final[i], label=legend_label)
 
@@ -354,10 +498,11 @@ def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model
         plt.xlabel(r'$\rho$ [-]', fontsize=label_fontsize)
         ylabel_variable = get_label_variable(variable)
         plt.ylabel(ylabel_variable, fontsize=label_fontsize)
+        plt.xlim((0,1))
         plt.show()
 
 
-def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose):
+def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = False):
     error_time = []
     error_time_space_all = []
     for i, time in enumerate(exp_data):
@@ -372,7 +517,8 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
             title = title_variable + 'error at t =  {time:.3f}'.format(time=time)
             plt.title(str(time))
             plt.xlabel(r'$\rho$ [-]')
-            plt.ylabel('Error')
+            plt.ylabel(r'$ \sigma_{\rho} $ [-]')
+            plt.xlim((0,1))
             plt.legend()
             plt.show()
 
@@ -386,13 +532,13 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
         plt.plot(time_vector_exp, error_time, label=label)
         plt.title(title_variable)
         plt.xlabel(r't [s]')
-        plt.ylabel('Error')
+        plt.ylabel(r'$ \sigma_{t} $ [-]')
         plt.legend()
         plt.show()
 
     return error_time, error_time_space_all
 
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False, fit_or_model = None):
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False):
 
     """
     Plots experimental data and model predictions, and calculates errors.
@@ -407,6 +553,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     :param label: label for the plot
     :param verbose: verbosity level
     :param fit_or_model: whether to plot fitted data or model data
+    :param apply_special_filter: applies a special filter to the impurity density that tries to avoid clusters with large errorbars
     :return: list of errors
     """
 
@@ -417,12 +564,12 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     variable_names = get_variable_names_exp(signals)
 
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp)
-    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model)
+    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model, show_fit = show_fit)
 
     t_cxrs = get_t_cxrs(core_profiles_exp)
     t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
 
-    all_exp_data = get_exp_data(db, shot, run_exp, time_begin, time_end, signals)
+    all_exp_data = get_exp_data(db, shot, run_exp, time_begin, time_end, signals, apply_special_filter = apply_special_filter)
 
     errors, errors_time = {}, {}
 
@@ -440,8 +587,8 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
         # Plotting routines
         if verbose:
             plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                                title_fontsize, label_fontsize)
-        error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose)
+                                title_fontsize, label_fontsize, show_fit = show_fit)
+        error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = show_fit)
 
         error_variable = sum(error_time)/len(exp_data)
         errors[variable] = error_variable
@@ -452,7 +599,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     return(errors, errors_time)
 
 
-def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdsplus'):
+def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdsplus', show_fit = False):
     if not username:
         username = getpass.getuser()
 
@@ -462,7 +609,10 @@ def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdspl
         user_name = username
 
     imas_backend = imasdef.MDSPLUS_BACKEND if backend == 'mdsplus' else imasdef.HDF5_BACKEND
-    data_entry = imas.DBEntry(imas_backend, db, shot, 2 if type(run) is str else run, user_name=user_name)
+    if show_fit:
+        data_entry = imas.DBEntry(imas_backend, db, shot, 1 if type(run) is str else run, user_name=user_name)
+    else:
+        data_entry = imas.DBEntry(imas_backend, db, shot, 2 if type(run) is str else run, user_name=user_name)
 
     op = data_entry.open()
 
@@ -481,15 +631,8 @@ def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdspl
 
 
 if __name__ == "__main__":
-    #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64770, 1, 1, 0.7, 0.9, signals = ['ne'], verbose = 2, fit_or_model = 'fit')
-    #plot_exp_vs_model('tcv', 64965, 6, 'run460_ohmic_predictive2', 0.1, 0.3, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['te', 'ti', 'ne', 'ni'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64965, 5, 'run465_64965_ohmic_predictive6', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64965, 2, 'run115_64965_run_ohmic_predictive', 0.03, 0.33, signals = ['ne','te'], verbose = 2, fit_or_model = 'Model')
-    plot_exp_vs_model('tcv', 64965, 2, 'run115_64965_run_ohmic_predictive', 0.03, 0.23, signals = ['ti'], verbose = 2, fit_or_model = 'Model')
+    #plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
+
     print('plot and compares experimental data with fits or model')
 
 
