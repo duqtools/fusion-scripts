@@ -183,6 +183,10 @@ variables_core_profiles = [
              ids = 'core_profiles',
              path = 'profiles_1d/*/grid/rho_tor_norm',
              dims = ['time', 'rho_tor_norm']),
+    Variable(name='volume',
+             ids = 'core_profiles',
+             path = 'profiles_1d/*/grid/volume',
+             dims = ['time', 'rho_tor_norm']),
     Variable(name='ti',
              ids = 'core_profiles',
              path = 'profiles_1d/*/ion/*/temperature',
@@ -268,26 +272,26 @@ variables_equilibrium = [
              ids = 'equilibrium',
              path = 'vacuum_toroidal_field/b0',
              dims = ['time']),
-    Variable(name='psi',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_1d/psi',
-             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='psi',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_1d/psi',
+#             dims = ['time', 'rho_tor_norm']),
     Variable(name='phi',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/phi',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='f',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_1d/f',
-             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='f',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_1d/f',
+#             dims = ['time', 'rho_tor_norm']),
     Variable(name='q',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/q',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='pressure',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_1d/pressure',
-             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='pressure',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_1d/pressure',
+#             dims = ['time', 'rho_tor_norm']),
     Variable(name='rho tor',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/rho_tor',
@@ -296,62 +300,62 @@ variables_equilibrium = [
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/rho_tor_norm',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='area',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_1d/area',
-             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='area',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_1d/area',
+#             dims = ['time', 'rho_tor_norm']),
     Variable(name='volume',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_1d/volume',
              dims = ['time', 'rho_tor_norm']),
-    Variable(name='r',
-             ids = 'equilibrium',
-             path = 'time_slice/*/boundary/outline/r',
-             dims = ['time', 'rho_tor_norm']),
-    Variable(name='z',
-             ids = 'equilibrium',
-             path = 'time_slice/*/boundary/outline/z',
-             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='r',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/boundary/outline/r',
+#             dims = ['time', 'rho_tor_norm']),
+#    Variable(name='z',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/boundary/outline/z',
+#             dims = ['time', 'rho_tor_norm']),
     Variable(name='ip',
              ids = 'equilibrium',
              path = 'time_slice/*/global_quantities/ip',
              dims = ['time']),
-    Variable(name='li 3',
-             ids = 'equilibrium',
-             path = 'time_slice/*/global_quantities/li_3',
-             dims = ['time']),
-    Variable(name='beta pol',
-             ids = 'equilibrium',
-             path = 'time_slice/*/global_quantities/beta_pol',
-             dims = ['time']),
-    Variable(name='beta tor',
-             ids = 'equilibrium',
-             path = 'time_slice/*/global_quantities/beta_tor',
-             dims = ['time']),
-    Variable(name='magnetic axis r',
-             ids = 'equilibrium',
-             path = 'time_slice/*/global_quantities/magnetic_axis/r',
-             dims = ['time']),
-    Variable(name='magnetic axis z',
-             ids = 'equilibrium',
-             path = 'time_slice/*/global_quantities/magnetic_axis/z',
-             dims = ['time']),
-    Variable(name='dim1',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_2d/*/grid/dim1',
-             dims = ['time','profile_2d','dim1']),
-    Variable(name='dim2',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_2d/*/grid/dim2',
-             dims = ['time','profile_2d','dim2']),
-    Variable(name='psi 2d',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_2d/*/psi',
-             dims = ['time','profile_2d','dim1','dim2']),
-    Variable(name='grid name',
-             ids = 'equilibrium',
-             path = 'time_slice/*/profiles_2d/*/grid_type/name',
-             dims = ['time','profile_2d']),
+#    Variable(name='li 3',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/global_quantities/li_3',
+#             dims = ['time']),
+#    Variable(name='beta pol',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/global_quantities/beta_pol',
+#             dims = ['time']),
+#    Variable(name='beta tor',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/global_quantities/beta_tor',
+#             dims = ['time']),
+#    Variable(name='magnetic axis r',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/global_quantities/magnetic_axis/r',
+#             dims = ['time']),
+#    Variable(name='magnetic axis z',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/global_quantities/magnetic_axis/z',
+#             dims = ['time']),
+#    Variable(name='dim1',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_2d/*/grid/dim1',
+#             dims = ['time','profile_2d','dim1']),
+#    Variable(name='dim2',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_2d/*/grid/dim2',
+#             dims = ['time','profile_2d','dim2']),
+#    Variable(name='psi 2d',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_2d/*/psi',
+#             dims = ['time','profile_2d','dim1','dim2']),
+#    Variable(name='grid name',
+#             ids = 'equilibrium',
+#             path = 'time_slice/*/profiles_2d/*/grid_type/name',
+#             dims = ['time','profile_2d']),
     Variable(name='grid index',
              ids = 'equilibrium',
              path = 'time_slice/*/profiles_2d/*/grid_type/index',
@@ -470,6 +474,15 @@ def put_integrated_modelling(dataset_integrated_modelling, db, shot, run, run_ta
     print(ne_post)
     '''
 
+    equilibrium = handle.get('equilibrium')
+    #Ip = dataset_integrated_modelling['equilibrium']['ip'].values
+    index = find_index_equilibrium_tag('phi')
+    equilibrium = target.get('equilibrium')
+    psi = handle.get_variables([variables_equilibrium[index], variable_equilibrium_time[0], variables_rho['equilibrium'][0]])
+
+    print(psi)
+
+
     for ids_key in dataset_integrated_modelling:
         ids = target.get(ids_key)
         #print(ids)
@@ -577,12 +590,15 @@ def create_stand_rho_tor_norm(rho_tor_norm_time, len_rho_tor_norm, grid_option =
         while(d_min<1.0e-10):
             rho_tor_norm_stand, d_min = remove_point_rho_tor_norm(rho_tor_norm_stand)
 
+    print(rho_tor_norm_stand)
+
     return rho_tor_norm_stand
 
 
 def fit_x(ds_ids):
 
-    rho_tor_norm_stand = create_stand_rho_tor_norm(ds_ids['rho tor norm time'], ds_ids.dims['rho_tor_norm'], grid_option = 'keep length', distance = 0.0001)
+    #rho_tor_norm_stand = create_stand_rho_tor_norm(ds_ids['rho tor norm time'], ds_ids.dims['rho_tor_norm'], grid_option = 'keep length', distance = 0.0001)
+    rho_tor_norm_stand = np.asarray([0.0, 0.02066875, 0.05391766, 0.08564238, 0.11377885, 0.14958486, 0.1819303, 0.22741833, 0.2436665, 0.26696234, 0.29529435, 0.31919492, 0.34242193, 0.35848221, 0.37879173, 0.39768312, 0.42783506, 0.44668681, 0.46277019, 0.48039047, 0.5017135, 0.53152548, 0.54538065, 0.57314838, 0.60395701, 0.62420328, 0.64333363, 0.66954129, 0.68713465, 0.72056814, 0.75103939, 0.76811268, 0.78210204, 0.80301704, 0.8207844, 0.85226917, 0.8778347, 0.92266607, 0.94070503, 0.96765307, 1.0])
 
     ds_ids_new = copy.deepcopy(ds_ids)
 
@@ -897,8 +913,9 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     # This should help with the speed and with the noisiness in vloop
 
     elif json_input['instructions']['rebase']:
-        rebase_option, rebase_num_times = json_input['rebase']['option'], json_input['rebase']['num times']
-        rebase_integrated_modelling(db, shot, run_input, run_start, ['equilibrium'], option = rebase_option, num_times = rebase_num_times)
+        #rebase_option, rebase_num_times = json_input['rebase']['option'], json_input['rebase']['num times']
+        rebased_dataset = rebase_on_time(dataset, time_dim='time', new_coords = times)
+        #rebase_integrated_modelling(db, shot, run_input, run_start, ['equilibrium'], option = rebase_option, num_times = rebase_num_times)
         print('Rebasing on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -981,62 +998,70 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     #    print('Adding early profiles on index ' + str(run_start))
     #    run_input, run_start = run_start, run_start+1
 
+    Zeff = ZeffIntegratedModelling(db, shot, run_input, run_start)
+
     if json_input['zeff evolution'] != 'original':
         zeff_option = json_input['zeff evolution']
-        if zeff_option == 'flat maximum':
-            set_flat_Zeff(db, shot, run_input, run_start, 'maximum')
-            print('Setting flat Zeff with maximum value on index ' + str(run_start))
-            run_input, run_start = run_start, run_start+1
-        elif zeff_option == 'flat minimum':
-            set_flat_Zeff(db, shot, run_input, run_start, 'minimum')
-            print('Setting flat Zeff with minimum value on index ' + str(run_start))
-            run_input, run_start = run_start, run_start+1
-        elif zeff_option == 'flat median':
-            set_flat_Zeff(db, shot, run_input, run_start, 'median')
-            print('Setting flat Zeff with median value on index ' + str(run_start))
+        if zeff_option == 'flat maximum' or zeff_option == 'flat minimum' or zeff_option == 'flat median':
+            #set_flat_Zeff(db, shot, run_input, run_start, 'maximum')
+            Zeff.set_flat_zeff(zeff_option)
+            print('Setting flat Zeff with ' + zeff_option +  ' value on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'impurity from flattop':
-            set_impurity_composition_from_flattop(db, shot, run_input, run_start, verbose = verbose)
+            #set_impurity_composition_from_flattop(db, shot, run_input, run_start, verbose = verbose)
+            Zeff.set_impurity_composition_from_flattop(verbose = verbose)
             print('Setting impurity composition from flattop on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and json_input['instructions']['average'] and zeff_option == 'impurity from flattop':
             print('Cannot extract the impurities from flattop when averaging')
             exit()
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'linear descending zeff':
-            set_linear_descending_zeff(db, shot, run_input, run_start)
+            #set_linear_descending_zeff(db, shot, run_input, run_start)
+            Zeff.set_linear_descending_zeff()
             print('Setting descending initial impurity composition on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'ip ne scaled':
-            set_ip_ne_scaled_zeff(db, shot, run_input, run_start)
+            #set_ip_ne_scaled_zeff(db, shot, run_input, run_start)
+            Zeff.set_ip_ne_scaled_zeff()
             print('Setting impurity composition using ne and ip scaling on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'hyperbole':
-            set_hyperbole_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff evolution parameter'], zeff_max = json_input['zeff max evolution'])
+            #set_hyperbole_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff evolution parameter'], zeff_max = json_input['zeff max evolution'])
+            Zeff.set_hyperbole_zeff(zeff_param = json_input['zeff evolution parameter'], zeff_max = json_input['zeff max evolution'])
             print('Setting descending hiperbolic initial impurity composition on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         else:
             print('Option for Zeff initialization not recognized. Aborting generation')
             exit()
 
+    Zeff.update_input_target(run_input, run_start)
+
     if json_input['zeff profile'] == 'parabolic zeff':
-        set_parabolic_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        #set_parabolic_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        Zeff.set_parabolic_zeff(zeff_param = json_input['zeff profile parameter'])
         print('Setting parabolic zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'peaked zeff':
-        set_peaked_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        #set_peaked_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        Zeff.set_peaked_zeff_profile(zeff_param = json_input['zeff profile parameter'])
         print('Setting peaked zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'peaked zeff evolved':
-        set_peaked_ev_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        #set_peaked_ev_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        Zeff.set_peaked_ev_zeff_profile(zeff_param = json_input['zeff profile parameter'])
         print('Setting peaked zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'low edge zeff':
-        set_low_edge_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        #set_low_edge_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        Zeff.set_low_edge_zeff(zeff_param = json_input['zeff profile parameter'])
         print('Setting zeff profile low at the edge on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
+    Zeff.update_input_target(run_input, run_start)
+
     if json_input['instructions']['correct zeff']:
-        correct_zeff(db, shot, run_input, db, shot, run_start)
+        #correct_zeff(db, shot, run_input, db, shot, run_start)
+        Zeff.correct_zeff()
         print('correcting zeff on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -2617,6 +2642,16 @@ def set_default_entries(username, db, shot, username_target, db_target, shot_tar
     return username, username_target, db_target, shot_target
 
 
+def find_index_equilibrium_tag(tag):
+    index = 0
+    for variable in variables_equilibrium:
+        if variable.name == tag:
+            break
+        index += 1
+    return index
+
+
+
 class ZeffIntegratedModelling:
 
     def __init__(self, db, shot, run, run_target, username=None, username_target=None, db_target=None, shot_target=None, backend='mdsplus'):
@@ -2632,32 +2667,41 @@ class ZeffIntegratedModelling:
 
         self.username, self.username_target, self.db_target, self.shot_target = set_default_entries(self.username, self.db, self.shot, self.username_target, self.db_target, self.shot_target)
 
+        # Should try to make this less redundant and funny, do not really need to extract everything
+
         ids_names_to_extract = ['core_profiles','summary']
         dataset_integrated_modelling = extract_integrated_modelling(ids_names_to_extract, self.username, self.db, self.shot, self.run)
         #print(dataset_integrated_modelling['core_profiles'])
         self.zeff = dataset_integrated_modelling['core_profiles']['zeff']
-        self.Zeff = dataset_integrated_modelling['core_profiles']['zeff'].to_numpy()
-        self.rho_tor_norm = dataset_integrated_modelling['core_profiles']['rho_tor_norm'].to_numpy()
+        self.Zeff = self.zeff.values
+        #self.Zeff = dataset_integrated_modelling['core_profiles']['zeff'].values
+        self.rho_tor_norm = dataset_integrated_modelling['core_profiles']['rho tor norm time'].values
 
         #print(dataset_integrated_modelling['core_profiles']['zeff'])
         #print(dataset_integrated_modelling['core_profiles']['rho_tor_norm'])
         #exit()
 
 
-        self.time_cp = dataset_integrated_modelling['core_profiles']['time core profiles'].to_numpy()
+        self.time_cp = dataset_integrated_modelling['core_profiles'].time.values
+        #self.time_eq = dataset_integrated_modelling['equilibrium'].time.values
         #self.time_eq = dataset_integrated_modelling['equilibrium']['time equilibrium'].to_numpy()
-        self.ne = dataset_integrated_modelling['core_profiles']['ne'].to_numpy()
+        self.ne = dataset_integrated_modelling['core_profiles']['ne'].values
         self.ne_ave = np.average(self.ne, axis = 1)
-        carbon_density = dataset_integrated_modelling['core_profiles']['ni'].to_numpy()
-        self.carbon_density = carbon_density[:,1,:]
+        carbon_density = dataset_integrated_modelling['core_profiles']['ni']
+        self.carbon_density = carbon_density.isel(ion=1).values
 
         # Equilibrium variables are separated for performance reason
-        handle = ImasHandle(user = self.username, db = self.db, shot = self.shot, run = self.run)
-        equilibrium = handle.get('equilibrium')
+        self.handle = ImasHandle(user = self.username, db = self.db, shot = self.shot, run = self.run)
+        equilibrium = self.handle.get('equilibrium')
+        #Ip = dataset_integrated_modelling['equilibrium']['ip'].values
         ip = self.extract_equilibrium_quantity_tag('ip')
-        self.Ip = ip['ip'].to_numpy()
-        self.time_eq = ip['time equilibrium'].to_numpy()
+        self.Ip = ip['ip'].values
+        self.time_eq = ip.time.values
 
+    def update_input_target(self, run, run_target):
+        self.__init__(self.db, self.shot, run, run_target)
+
+    # Should go out of the class
     def find_index_equilibrium_tag(self, tag):
         index = 0
         for variable in variables_equilibrium:
@@ -2668,11 +2712,11 @@ class ZeffIntegratedModelling:
 
     def extract_equilibrium_quantity_tag(self, tag):
         index = self.find_index_equilibrium_tag(tag)
-        handle = ImasHandle(user = self.username, db = self.db, shot = self.shot, run = self.run)
-        equilibrium = handle.get('equilibrium')
-        quantity = handle.get_variables([variables_equilibrium[index], variable_equilibrium_time[0]])
+        equilibrium = self.handle.get('equilibrium')
+        quantity = self.handle.get_variables([variables_equilibrium[index], variable_equilibrium_time[0]])
         return quantity
 
+    # Should use the one out of the class
     def set_default_entries(self):
 
         if not self.username:
@@ -2687,7 +2731,7 @@ class ZeffIntegratedModelling:
 
     def set_flat_zeff(self, option):
 
-        handle, target = open_and_copy_handle_target(self.username, self.db, self.shot, self.run, self.run_target)
+        #handle, target = open_and_copy_handle_target(self.username, self.db, self.shot, self.run, self.run_target)
 
         if option == 'maximum':
         # The maximum Zeff might be too large, the not completely ionized carbon close to the LCFS might lead to a negative main ion density
@@ -2727,7 +2771,7 @@ class ZeffIntegratedModelling:
         self.put_zeff()
 
 
-    def set_hyperbolic_zeff(self, zeff_param = 0, zeff_max = 3, verbose = False):
+    def set_hyperbole_zeff(self, zeff_param = 0, zeff_max = 3, verbose = False):
 
         index_start_ft, index_end_ft = find_indexes_start_end(self.Ip, self.time_eq, zeff_param, self.time_cp)
 
@@ -2743,7 +2787,7 @@ class ZeffIntegratedModelling:
         # Only changed at the beginning. Not adequate for ramp down. For that I would need to identify the last flattop, currently not done.
         Zeff_new, index = [], 0
         for z in self.Zeff[:index_start_ft]:
-            Zeff_new.append(np.full((np.size(z)), a + b/((c*time_cp[index])**4 +1)))
+            Zeff_new.append(np.full((np.size(z)), a + b/((c*self.time_cp[index])**4 +1)))
             index += 1
 
         for z in self.Zeff[index_start_ft:]:
@@ -2761,7 +2805,7 @@ class ZeffIntegratedModelling:
         print('zeff set hyperbolic')
 
 
-    def set_peaked_zeff(self, zeff_param = 1):
+    def set_peaked_zeff_profile(self, zeff_param = 1):
         self.correct_numpy_Zeff()
 
         average_zeff = []
@@ -2770,7 +2814,7 @@ class ZeffIntegratedModelling:
 
         for index in range(np.shape(self.Zeff)[0]):
             norm = zeff_param * (average_zeff[index]-1)/2
-            self.Zeff[index] = average_zeff[index] - norm/2 + norm * np.sqrt(1-rho_tor_norm[index])
+            self.Zeff[index] = average_zeff[index] - norm/2 + norm * np.sqrt(1-self.rho_tor_norm[index])
 
         self.correct_numpy_Zeff()
         self.put_zeff()
@@ -2938,6 +2982,7 @@ class ZeffIntegratedModelling:
         # Put manipulated variable back in the IDS
         self.zeff['zeff'] = xr.DataArray(self.Zeff, coords=self.zeff.coords, dims=self.zeff.dims, attrs=self.zeff.attrs)
         target = ImasHandle(user = self.username_target, db = self.db_target, shot = self.shot_target, run = self.run_target)
+        self.handle.copy_data_to(target)
         core_profiles = target.get('core_profiles')
         core_profiles.write_array_in_parts('profiles_1d/*/zeff', self.zeff['zeff'])
         core_profiles.sync(target)
@@ -3461,6 +3506,7 @@ def find_indexes_start_end(ip, time_eq, zeff_param, time_cp):
     index_start_ft = np.abs(time_cp - time_eq[index_start_ft_eq]).argmin(0)
     index_end_ft = np.abs(time_cp - time_eq[index_end_ft_eq]).argmin(0)
 
+    return index_start_ft, index_end_ft
 
 def set_hyperbole_zeff_duqtools(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
 
@@ -5135,24 +5181,47 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
 
     for ids_name in ids_names_to_extract:
         r0, b0s = dataset_im[ids_name]['r0'], dataset_im[ids_name]['b0']
-        volumes, ips = dataset_im[ids_name]['volume'], dataset_im[ids_name]['ip']
-        q_old, rho = dataset_im[ids_name]['q'], dataset_im[ids_name]['rho tor norm time']
+        if 'volume' in dataset_im[ids_name]:
+            volumes, ips = dataset_im[ids_name]['volume'], dataset_im[ids_name]['ip']
+            if 'rho_tor_norm' in  dataset_im[ids_name]['volume'].dims:
+                volumes = dataset_im[ids_name]['volume'].values[:,-1]
+        else:
+            volumes, ips = np.asarray([]), np.asarray([])
+        # Could try to get the values from the volumes from equilibrium if they are not there but are in q profile
+ 
+        q_old, rho = dataset_im[ids_name]['q'].values, dataset_im[ids_name]['rho tor norm time'].values
 
         # Changing the q profile both in equilibrium and core profiles
         q_new = []
-        for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
-            # This normalizes the q95 from the extrapolation to the value expected from the other parameters
-            index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
-            q95 = abs(q_slice[index_rho_95])
+        if volumes.any() and ips.any():
+            print(ids_name)
+            print('volume is there')
+            print(np.shape(q_old), np.shape(rho), np.shape(volumes), np.shape(ips), np.shape(b0s))
+            for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
+                # This normalizes the q95 from the extrapolation to the value expected from the other parameters
+                index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+                q95 = abs(q_slice[index_rho_95])
+                q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
 
-            q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
+                # This makes it easier to decide a value for q[0]. Could live it as an option.
+                mult_slice = abs(mult/q_slice[0])
+                q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
+                q_new.append(q_slice)
+        else:
+             print(ids_name)
+             print('volume is not there')
+             # Try to still do the best I can if there is no data
+             for q_slice, rho_slice in zip(q_old, rho):
+                # This normalizes the q95 from the extrapolation to the value expected from the other parameters
+                index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+                q95 = abs(q_slice[index_rho_95])
 
-            # This makes it easier to decide a value for q[0]. Could live it as an option.
-            mult_slice = abs(mult/q_slice[0])
-            q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
-            q_new.append(q_slice)
+                # This makes it easier to decide a value for q[0]. Could live it as an option.
+                mult_slice = abs(mult/q_slice[0])
+                q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
+                q_new.append(q_slice)
 
-        dataset_im[ids_name]['q'] = np.asarray(q_new)
+        dataset_im[ids_name]['q'].values = np.asarray(q_new)
 
         ids = target.get(ids_name)
         variable = get_variable_im(ids_name, 'q')
@@ -5272,16 +5341,16 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
     for i in np.arange(dataset_im['core_profiles'].sizes['ion']-1):
         te_ion_size = np.hstack((te_ion_size, electron_temperatures))
 
-    te_ion_size = te.reshape(np.shape(ion_temperatures))
+    te_ion_size = te_ion_size.reshape(np.shape(ion_temperatures))
 
     new_profiles = np.where(ion_temperatures/te_ion_size < ratio_limit, ion_temperatures, ratio_limit*te_ion_size)
     dataset_im['core_profiles']['ti'].values = new_profiles
 
     variables = ['ti', 't_i_ave']
-    ids = target.get(ids_name)
+    ids = target.get('core_profiles')
     for variable_name in variables:
         variable = get_variable_im('core_profiles', variable_name)
-        ids.write_array_in_parts(variable.path, dataset_im[ids_name][name_variable])
+        ids.write_array_in_parts(variable.path, dataset_im['core_profiles'][variable_name])
     ids.sync(target)
 
 
