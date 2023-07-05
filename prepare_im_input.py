@@ -19,7 +19,7 @@ import types
 import pdb
 
 
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 #from matplotlib.animation import FuncAnimation
 from IPython import display
@@ -68,6 +68,10 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     #average, rebase, nbi_heating, flat_q_profile = False, False, False, False
     #correct_Zeff, set_boundaries, correct_boundaries, adding_early_profiles = False, False, False, False
 
+
+    get_backend(db, shot, run)
+
+
     # Checking that everything is fine with the input options
     if json_input['zeff profile'] not in json_input['zeff profile options']:
         print('Unrecognized zeff profile options. Do not know what to do. Aborting')
@@ -84,9 +88,13 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # To save computational time, equilibrium and core profiles might be passed if they have already been extracted
     if not core_profiles:
-        core_profiles = open_and_get_core_profiles(db, shot, run_input)
+        core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
     if not equilibrium:
-        equilibrium = open_and_get_equilibrium(db, shot, run_input)
+        equilibrium = open_and_get_ids(db, shot, run, 'equilibrium')
+
+    if json_input['misalignment']['flag']:
+        correct_misalligned_hrts(db, shot, run_input, run_input+1, json_input['misalignment']['schema'])
+        run_input = run_input+1
 
     # Boundaries instructions are read only if 'set boundaries' is true (Moved in the function itself)
     #if json_input['instructions']['set boundaries']:
@@ -181,9 +189,9 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         #print('flipping q profile on index ' + str(run_start))
         #run_input, run_start = run_start, run_start+1
 
-    # Temporarily like this. The function itself will need to be updated
+    # Updates the nbi and if needed multiplies the power for sensitivity purposes
     if json_input['instructions']['nbi heating']:
-        prepare_nbi(db, shot, run_input, shot, run_start)
+        setup_nbi_ids(db, shot, run_input, run_start, backend='mdsplus', power_multiplier = json_input['nbi options']['power_multiplier'])
         print('Preparing nbi on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -365,7 +373,6 @@ class IntegratedModellingDict:
             self.ids_dict['time']['core_sources'] = time
     
         # --------------------- Extract nbi data --------------------------------
-        
         if 'nbi' in self.ids_struct:
 
             traces, time = self.extract_nbi()
@@ -715,8 +722,9 @@ class IntegratedModellingDict:
                     # Search for corresponding data to fit
                     tag_quantity = tag.replace('time', 'data')
                     # This excludes the case where the length of times is 0, so when an NBI is not used.
-                    if len(traces[tag_quantity]) == 0:
+                    if len(traces[tag_quantity]) == 0 or len(times[tag]) == 0:
                         traces[tag_quantity] = np.asarray([])
+                        times[tag] = np.asarray([])
                     elif len(np.shape(traces[tag_quantity])) > 1:
                         new_quantity = np.asarray([])
                         for single_trace in traces[tag_quantity]:
@@ -1446,6 +1454,38 @@ class IntegratedModellingDict:
 
 # -------------------------------------------- MANIPULATE IDSS -----------------------------------------------
 
+def correct_misalligned_hrts(db, shot, run, run_target, schema):
+
+    # Extract data
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+    ne_fit, ne_exp = [], []
+    for profile_1d in core_profiles.profiles_1d:
+        ne_fit.append(profile_1d.electrons.density)
+        ne_exp.append(profile_1d.electrons.density_fit.measured.data)
+
+    ne_fit, ne_exp = np.asarray(ne_fit), np.asarray(ne_exp)
+    times = core_profiles.time
+
+    # Creating the mask
+    line_ave_proxy = np.average(ne_fit, axis = 1) # specify axis
+
+    mask = schema*(line_ave_proxy.size//len(schema)+1)
+    mask = mask[:line_ave_proxy.size]
+    mask = [bool(element) for element in mask]
+
+    # Calculating new proxy without the corrupted data
+    line_ave_proxy_new = line_ave_proxy[mask]
+    line_ave_proxy_new = fit_and_substitute(times[mask], times, line_ave_proxy_new)
+
+    for index, profile_1d in enumerate(core_profiles.profiles_1d):
+        ratio = line_ave_proxy_new[index]/line_ave_proxy[index]
+        core_profiles.profiles_1d[index].electrons.density = profile_1d.electrons.density*ratio
+        core_profiles.profiles_1d[index].electrons.density_fit.measured = profile_1d.electrons.density_fit.measured*ratio
+
+    # Create the new IDS and syncronizing the new core profiles
+    ids_struct = {}
+    ids_struct['core_profiles'] = core_profiles
+    put_integrated_modelling(db, shot, run, run_target, ids_struct)
 
 
 def select_interval_ids(db, shot, run, run_target, time_start, time_end, username = None):
@@ -1486,7 +1526,7 @@ def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option
         username = getpass.getuser()
 
     if option == 'core profiles':
-        core_profiles = open_and_get_core_profiles(db, shot, run)
+        core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
         new_times = core_profiles.times
 
         ids_data = IntegratedModellingDict(db, shot, run, username = username)
@@ -1561,7 +1601,7 @@ def open_integrated_modelling(db, shot, run, username='', backend='mdsplus'):
 
     ids_struct = {}
     #ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering']
-    ids_list = ['core_profiles', 'core_sources', 'equilibrium', 'nbi', 'summary', 'thomson_scattering']
+    ids_list = ['core_profiles', 'core_sources', 'equilibrium', 'summary', 'thomson_scattering']
 
     for ids in ids_list:
         ids_struct_single = data_entry.get(ids)
@@ -1571,152 +1611,34 @@ def open_integrated_modelling(db, shot, run, username='', backend='mdsplus'):
         else:
             print('no ' + ids + ' ids')
 
+    #nbi often does not have the time field
+    ids_struct_single = data_entry.get('nbi')
+    if len(ids_struct_single.unit) != 0:
+        if ids_struct_single.unit[0].power_launched.time.size != 0:
+            ids_struct['nbi'] = ids_struct_single
+
     data_entry.close()
 
     return(ids_struct)
 
-def open_and_get_core_profiles(db, shot, run, username='', backend='mdsplus'):
+
+def get_backend(db, shot, run, username=None):
+
+    if not username:
+        username = getpass.getuser()
+
+    imas_backend = imasdef.HDF5_BACKEND
+
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+
+
+def open_and_get_ids(db, shot, run, ids_name, username=None, backend='mdsplus'):
 
     imas_backend = imasdef.MDSPLUS_BACKEND
     if backend == 'hdf5':
         imas_backend = imasdef.HDF5_BACKEND
 
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    core_profiles = data_entry.get('core_profiles')
-    data_entry.close()
-
-    return(core_profiles)
-
-
-def open_and_get_equilibrium(db, shot, run, username='', backend='mdsplus'):
-
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    equilibrium = data_entry.get('equilibrium')
-    data_entry.close()
-
-    return(equilibrium)
-
-#Redundant since I can just use partial get
-
-def open_and_get_equilibrium_tag(db, shot, run, tag, username='', backend='mdsplus', prefix='global_quantities'):
-
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    time = data_entry.partial_get('equilibrium', 'time(:)')
-    variable = data_entry.partial_get('equilibrium', 'time_slice(:)/' + prefix + '/' + tag)
-    data_entry.close()
-
-    return(time, variable)
-
-def open_and_get_summary(db, shot, run, username=None, backend='mdsplus'):
-
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if not isinstance(username, str):
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    summary = data_entry.get('summary')
-    data_entry.close()
-
-    return(summary)
-
-def open_and_get_core_sources(db, shot, run, username='', backend='mdsplus'):
-
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    core_sources = data_entry.get('core_sources')
-    data_entry.close()
-
-    return(core_sources)
-
-
-def open_and_get_ids(db, shot, run, ids_name, username='', backend='mdsplus'):
-
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if username == '':
+    if not username:
         data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
     else:
         data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
@@ -1836,7 +1758,7 @@ def set_flat_Zeff(db, shot, run, run_target, option, username = ''):
     if username == '':
         username = getpass.getuser()
 
-    core_profiles = open_and_get_core_profiles(db, shot, run, username)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
     Zeff = np.array([])
 
     for profile_1d in core_profiles.profiles_1d:
@@ -2328,8 +2250,8 @@ def identify_flattop(db, shot, run, verbose = False):
 
     username = getpass.getuser()
 
-    core_profiles = open_and_get_core_profiles(db, shot, run, username)
-    summary = open_and_get_summary(db, shot, run, username)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
+    summary = open_and_get_ids(db, shot, run, 'summary', username = username)
 
     ids_data = IntegratedModellingDict(db, shot, run, username = username)
     ids_dict = ids_data.ids_dict
@@ -2390,7 +2312,7 @@ def identify_flattop(db, shot, run, verbose = False):
 
 #  ------ Should implement, and it might be a good time to try to program the equilibrium interface using attributes ------
 
-#    equilibrium = open_and_get_equilibrium(db, shot, run, username)
+#    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username)
 #    time_start_ft_ip, time_end_ft_ip = identify_flattop_variable(equilibrium.global_quantities.ip, equilibrium.time)
 
 #    print(time_start_ft_ip, time_end_ft_ip)
@@ -2464,7 +2386,7 @@ def identify_flattop_ip(ip, time):
 
 def check_ion_number(db, shot, run):
 
-    core_profiles = open_and_get_core_profiles(db, shot, run)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
     ion_number = len(core_profiles.profiles_1d[0].ion)
 
     return(ion_number)
@@ -2481,7 +2403,7 @@ def flip_q_profile(db, shot, run, run_target, username = ''):
     if username == '':
         username = getpass.getuser()
 
-    core_profiles = open_and_get_core_profiles(db, shot, run, username)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
 
     for index, profile_1d in enumerate(core_profiles.profiles_1d):
         core_profiles.profiles_1d[index].q = -core_profiles.profiles_1d[index].q
@@ -2504,7 +2426,7 @@ def use_flat_q_profile(db, shot, run, run_target, username = ''):
     if username == '':
         username = getpass.getuser()
 
-    core_profiles = open_and_get_core_profiles(db, shot, run, username)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
     q = []
 
     len_time = len(core_profiles.time)
@@ -2536,7 +2458,7 @@ def use_flat_vloop(db, shot, run_relaxed, run_target, username = ''):
     if username == '':
         username = getpass.getuser()
 
-    core_profiles = open_and_get_core_profiles(db, shot, run_relaxed, username)
+    core_profiles = open_and_get_ids(db, shot, run_relaxed, 'core_profiles', username = username)
     q_slice = core_profiles.profiles_1d[-1].q
 
     for index, q_slice in enumerate(q):
@@ -2553,7 +2475,7 @@ def use_flat_vloop(db, shot, run_relaxed, run_target, username = ''):
 
 def check_and_flip_ip(db, shot, run, shot_target, run_target):
 
-    equilibrium = open_and_get_equilibrium(db, shot, run)
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username)
     if equilibrium.time_slice[0].global_quantities.ip > 0:
         flip_ip(db, shot, run, shot_target, run_target)
 
@@ -2563,7 +2485,7 @@ def flip_ip(db, shot, run, shot_target, run_target):
 
     username = getpass.getuser()
 
-    equilibrium = open_and_get_equilibrium(db, shot, run)
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username)
     copy_ids_entry(username, db, shot, run, shot_target, run_target)
 
     equilibrium_new = copy.deepcopy(equilibrium)
@@ -2851,17 +2773,32 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
 
 
     ne_sep_time = []
+    time_continuity_density = extra_boundary_instructions['time continuity density']
+    ne_sep = extra_boundary_instructions['ne sep']
+    ne_start = extra_boundary_instructions['ne start']
     for itime, time in enumerate(times):
         # Setting ne
         if extra_boundary_instructions['method ne'] == 'constant':
             ne_sep_time.append(extra_boundary_instructions['ne sep'])
         elif extra_boundary_instructions['method ne'] == 'limit':
             ne_sep_time.append(ids_dict['profiles_1d']['electrons.density'][itime][-1])
+        elif extra_boundary_instructions['method ne'] == 'set early':
+            f_space = interp1d(times, e_densities[:,-1])
+            ne_continuity = f_space(time_continuity_density)
+            if time < time_continuity_density:
+                ne_sep_time.append((ne_continuity - ne_start)/time_continuity*time + ne_start)
+            else:
+                ne_sep_time.append(e_densities[itime][-1])
+        else:
+            print('method for boundary settings not recognized. Aborting')
+            exit()
 
     ne_sep_time = np.asarray(ne_sep_time)
 
     if extra_boundary_instructions['method ne'] == 'limit':
         ne_sep_time = np.where(ne_sep_time < extra_boundary_instructions['ne sep'], ne_sep_time, extra_boundary_instructions['ne sep'])
+        # sets also a minimum limit on the density that might be problematic for the model
+        ne_sep_time = np.where(ne_sep_time > 0.4e19, ne_sep_time, 0.4e19)
 
     te_sep_time, ti_sep_time = np.asarray(te_sep_time), np.asarray(ti_sep_time)
     if bound_te_down:
@@ -3239,10 +3176,13 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     x = new_rho_tor_norm[0]
     '''
 
-    for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
+    # Should not be like this
+    #for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
+    for variable in ['electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
 
         old_profiles = ids_dict['profiles_1d'][variable]
         if variable == 'electrons.density_thermal' or variable == 'electrons.density':
+            # Should not matter, should be removed
             if electron_density_option == 'flat':
                 first_profile = np.full(np.size(ids_dict['profiles_1d'][variable][0]), ids_dict['profiles_1d'][variable][0][-1])
             elif electron_density_option == 'first profile':
@@ -3327,6 +3267,10 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     #for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average']:
     #    ids_dict['profiles_1d'][variable] = np.transpose(np.asarray(new_profiles[variable]))
 
+    #fig, axs = plt.subplots(1,1)
+    #axs.plot(old_times_summary, ids_dict['traces']['line_average.n_e.value'], 'g-', label = 'line average pre')
+
+
     #When the current is negative, the fit extrapolation might flip it back to positive. Enforcing 0 current a t=0
     old_current = np.insert(ids_dict['traces']['global_quantities.ip'], 0, 0)
     old_times_equilibrium = np.insert(ids_dict['time']['equilibrium'], 0, 0)
@@ -3335,7 +3279,8 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     # When measurement for the density are available and line averaged density is not, the line averaged density is corrected instead of just extrapolated.
     # The formula is still raw but this is necessary for predictive runs to have the feedback puff activated correctly
     first_density_boundary_measured = ids_dict['profiles_1d']['electrons.density'][0][-1]
-    i_time_over_0_1 = np.argmax(old_times_summary>0.1) + 1
+    i_time_over_0_1 = np.argmax(old_times_summary>0.1)
+    #i_time_over_0_1 = np.argmax(old_times_summary>0.1) + 1
     #line_average_measured_point = np.sum(new_profiles[variable][i_time_over_0_1])/x_dim
 
     # Summary and core profile do not have the same time trace.
@@ -3348,9 +3293,8 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
             line_averaged_proxy[variable].append(np.sum(ids_dict['profiles_1d'][variable][i])/x_dim)
 
         # Modifying here the line averaged density at the beginning to correlate it to the first measured boundary value
-        # Instead of having a fixed 0.5e19 value. The assumption is basically a mainly flat density profile
-        # 1.2 Is arbitrary, represents a sligthly peaked profile
-        line_averaged_proxy[variable] = np.insert(line_averaged_proxy[variable], 0, ids_dict['profiles_1d']['electrons.density'][0][-1]*1.2)
+        # Just setting a low value not to risk a too high puff immediately at the beginning of the simulation
+        line_averaged_proxy[variable] = np.insert(line_averaged_proxy[variable], 0, ids_dict['profiles_1d']['electrons.density'][0][-1]*0.5)
         f_space = interp1d(old_times_core_profiles, line_averaged_proxy[variable])
         line_average_measured_point[variable] = f_space(0.1)
 
@@ -3379,6 +3323,10 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     # Maybe it does not work, especially if the coordinates start to merge. Testing
     ids_data.update_times(new_times_core_profiles, ['equilibrium'])
 
+    # Should be removed
+    ids_dict['profiles_1d']['electrons.density_thermal'] = ids_dict['profiles_1d']['electrons.density']
+    new_profiles['electrons.density_thermal'] = ids_dict['profiles_1d']['electrons.density_thermal']
+
     # Adding the option of normalizing the initial density to the initial line average density (which might or might not be extrapolated)
     if extra_early_options['normalize density to line ave']:
         if len(ids_dict['traces']['line_average.n_e.value']) == 0:
@@ -3402,6 +3350,11 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     ids_dict['traces']['global_quantities.ip'] = fit_and_substitute(old_times_equilibrium, new_times_core_profiles, old_current)
 
     # Should check that the correct coordinate for the HFPS is also updated. Or is it necessary?
+
+    #axs.plot(old_times_core_profiles, line_ave_density_core_profiles_time, 'r-', label = 'line average')
+    #axs.plot(old_times_summary, line_averaged_proxy_summary_time['electrons.density'], 'b-', label = 'proxy')
+    #fig.legend()
+    #plt.show()
 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()

@@ -22,6 +22,11 @@
         "num times": 100
     },
 
+    "misalignment": {
+        "flag": false,
+        "schema": [1,1,1]
+    },
+
     "zeff profile": "flat",
     "zeff profile options": [
         "original",
@@ -32,6 +37,10 @@
         "low edge zeff"
     ],
     "zeff profile parameter": 1,
+
+    "nbi options": [
+        "power multiplier"
+    ],
 
     "zeff evolution": "original",
     "zeff evolution options":[
@@ -54,10 +63,12 @@
         "ti sep": 20,
         "method ne": false,
         "ne sep": 0.5e19,
-        "bound te down": 30,
-        "bound te up": 100,
+        "bound te down": 25,
+        "bound te up": 150,
         "time continuity": 0.05,
+        "time continuity density": 0.05,
         "temp start": 20,
+        "ne start": 0.5e19,
         "method options": [
             "constant",
             "linear",

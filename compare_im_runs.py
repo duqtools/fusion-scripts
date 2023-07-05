@@ -255,6 +255,20 @@ def fit_and_substitute(x_old, x_new, y_old):
     y_new[y_new > 1.0e25] = 0.0    # This is just in case
     return y_new
 
+def get_label_variable(variable):
+
+    """
+    Get the label variable string for a given variable.
+    """
+    if variable == 'summary.global_quantities.li.value':
+        return r'$l_{i3}$ [-]'
+    elif variable == 'summary.global_quantities.energy_diamagnetic.value':
+        return r'$W_{dia}$ $[J]$'
+
+    else:
+        return variable
+
+
 def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
     data_dict = {}
     sigcomp = signame.split('.')
@@ -473,6 +487,7 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
             fig = plt.figure()
             ax = fig.add_subplot(111)
             for run in pdata:
+                print(run)
                 xdata = pdata[run]["time"]
                 ydata = pdata[run]["data"]
                 linestyle = '-'
@@ -482,9 +497,18 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
                     ydata = np.full(xdata.shape, pdata[run]["data"][0])
                     linestyle = '--'
                     linecolor = 'k'
-                ax.plot(xdata, ydata, label=run, c=linecolor, ls=linestyle)
-            ax.set_xlabel("time (s)")
-            ax.set_ylabel(signame)
+
+                if len(pdata) == 2 and (first_run != run):
+                    run_label = 'Integrated modelling prediction'
+                elif first_run == run:
+                    run_label = 'Experimental measurement'
+
+                if len(pdata) != 2:
+                    run_label = run
+                
+                ax.plot(xdata, ydata, label=run_label, c=linecolor, ls=linestyle)
+            ax.set_xlabel("time [s]")
+            ax.set_ylabel(get_label_variable(signame))
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
@@ -495,8 +519,6 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
     if isinstance(plot_vars, list):
         signal_list = plot_vars
     for signame in signal_list:
-        print(signal_list)
-        print(interpolated_data)
         if signame in interpolated_data:
             print("Plotting %s" % (signame))
             fig = plt.figure()
@@ -504,8 +526,8 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
 
             for run in interpolated_data[signame]:
                 ax.plot(interpolated_data[signame+".t"], interpolated_data[signame][run].flatten(), label=run)
-            ax.set_xlabel("time (s)")
-            ax.set_ylabel(signame)
+            ax.set_xlabel("time [s]")
+            ax.set_ylabel(get_label_variable(signame))
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
@@ -569,7 +591,7 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
 
             ax = Figure.add_subplot(1, 1, 1)
             ax.set_xlabel('rho_tor_norm')
-            ax.set_ylabel(signame)
+            ax.set_ylabel(get_label_variable(signame))
             #ax.set_xlabel(r'$\rho$ [-]')
             #ax.set_ylabel(ylabel + ' ' + units)
             ymin = None
@@ -638,7 +660,7 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
 
             ax = Figure.add_subplot(1, 1, 1)
             ax.set_xlabel('rho_tor_norm')
-            ax.set_ylabel(signame)
+            ax.set_ylabel(get_label_variable(signame))
             #ax.set_xlabel(r'$\rho$ [-]')
             #ax.set_ylabel(ylabel + ' ' + units)
             ymin = None

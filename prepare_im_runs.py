@@ -18,7 +18,6 @@ import inspect
 import types
 
 import matplotlib.pyplot as plt
-
 from matplotlib.animation import FuncAnimation
 from IPython import display
 
@@ -55,8 +54,10 @@ import sys
 sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
 
 import jetto_tools
-print(jetto_tools.__version__)
-print(jetto_tools.__file__)
+#print(jetto_tools.__version__)
+#print(jetto_tools.__file__)
+
+import duqtools
 
 import copy
 
@@ -150,23 +151,25 @@ flip_ip(db, shot, run, shot_target, run_target)
 
 class IntegratedModellingRuns:
     def __init__(
-	self, 
-	shot, 
-	instructions_list, 
-	generator_name, 
-	baserun_name, 
-	db = 'tcv', 
-	run_input = 1,
+        self, 
+        shot, 
+        instructions_list, 
+        generator_name, 
+        baserun_name, 
+        db = 'tcv', 
+        run_input = 1,
         run_start = None,
-	run_output = 100,
-	time_start = None,
-	time_end = 100,
+        run_output = 100,
+        time_start = None,
+        time_end = 100,
         esco_timesteps = None,
         output_timesteps = None,
-	force_run = False,
+        force_run = False,
         force_input_overwrite = False,
-	density_feedback = False,
+        density_feedback = False,
         setup_time_polygon_flag = False,
+        change_impurity_puff_flag = False,
+        setup_time_polygon_impurities_flag = False,
         setup_nbi_flag = False,
         path_nbi_config = None,
         json_input = None,
@@ -193,6 +196,8 @@ class IntegratedModellingRuns:
         self.force_input_overwrite = force_input_overwrite
         self.density_feedback = density_feedback
         self.setup_time_polygon_flag = setup_time_polygon_flag
+        self.change_impurity_puff_flag = change_impurity_puff_flag
+        self.setup_time_polygon_impurities_flag = setup_time_polygon_impurities_flag
         self.setup_nbi_flag = setup_nbi_flag
         self.path_nbi_config = path_nbi_config
         self.core_profiles = None
@@ -463,6 +468,13 @@ class IntegratedModellingRuns:
         if self.setup_time_polygon_flag:
             self.setup_time_polygon()
 
+        if self.change_impurity_puff_flag:
+            self.change_impurity_puff()
+
+        # Currently only working with one impurity
+        if self.setup_time_polygon_impurities_flag:
+            self.setup_time_polygon_impurity_puff()
+
         # Selecting the impurity correctly in the jset
 
         impurity_jset_linestarts = ['ImpOptionPanel.impuritySelect[]',
@@ -674,7 +686,7 @@ class IntegratedModellingRuns:
 
         r0 = self.equilibrium.vacuum_toroidal_field.r0*100
 
-# -----------------------------------------------------
+        # -----------------------------------------------------
 
         return b0, r0
 
@@ -708,7 +720,7 @@ class IntegratedModellingRuns:
             shutil.copytree(self.path_generator, self.path_baserun)
         else:
             shutil.copyfile(self.path + '/lookup_json/lookup.json', self.path_baserun + '/lookup.json')  # Just this line should be fine
-#            shutil.copyfile(self.path_generator + '/jetto.in', self.path_baserun + '/jetto.in')
+        #   shutil.copyfile(self.path_generator + '/jetto.in', self.path_baserun + '/jetto.in')
 
         # Changing the orientation when necessary
         # Add IBTSING if ip sign and b0 sign are opposite. There is still a bug.
@@ -719,16 +731,15 @@ class IntegratedModellingRuns:
             add_item_lookup('rmj', 'EquilEscoRefPanel.refMajorRadius', 'NLIST1', 'real', 'scalar', self.path_baserun)
             add_item_lookup('ibtsign', 'null', 'NLIST1', 'int', 'scalar', self.path_baserun)
 
-            if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
-                extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['1'])
-            else:
-                extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['-1'])
+        if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
+            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['1'])
+        else:
+            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['-1'])
 
         put_extraname_fields(self.path_baserun, extranamelist)
 
         # A temporary function to handle arrays since the pythontools do not do it yet. When the option comes online again use that.
         self.tmp_handle_arrays_open()
-
         template = jetto_tools.template.from_directory(self.path_baserun)
         config = jetto_tools.config.RunConfig(template)
 
@@ -860,7 +871,7 @@ class IntegratedModellingRuns:
         Modifies the jset file to accomodate a new run name, username, shot and run. Database not really implemented yet
     
         '''
-    
+
         # Might want more flexibility with the run list here. Maybe set more options in the future
         # The last values with the final times should be handled within the config, but are not. They should be temporary
 
@@ -938,8 +949,7 @@ class IntegratedModellingRuns:
 
         '''
 
-        Modifies the jset file to accomodate a new run name, username, shot and run. Database not really implement
-ed yet
+        Modifies the jset file to accomodate a new run name, username, shot and run. Database not really implemented yet
 
         '''
 
@@ -950,7 +960,7 @@ ed yet
 
         new_content_list = [
             nbi_config_name,
-            '/afs/eufus.eu/user/g/g2ethole/public/tcv_inputs'
+           '/afs/eufus.eu/user/g/g2ethole/public/tcv_inputs'
         ]
 
         for line_start, new_content in zip(line_start_list, new_content_list):
@@ -1008,12 +1018,12 @@ ed yet
         }
 
         if num_times_print != None:
-           jetto_in_nameslist['  NTINT'] = str(num_times_print)
-           jetto_in_nameslist['  NTPR'] = str(num_times_print - 2)
+            jetto_in_nameslist['  NTINT'] = str(num_times_print)
+        jetto_in_nameslist['  NTPR'] = str(num_times_print - 2)
 
         if interpretive_flag:
-           del jetto_in_nameslist['  RMJ']
-           del jetto_in_nameslist['  BTIN']
+            del jetto_in_nameslist['  RMJ']
+            del jetto_in_nameslist['  BTIN']
 
         for index, line in enumerate(read_data):
             if line[:6] == '  BTIN':
@@ -1143,7 +1153,23 @@ ed yet
         # for item in jetto_in_multiline_nameslist:
         # change_jetto_in_multiline(item)
 
+        imp_data = {'  ALFI': imp_density,
+                    '  ATMI': imp_mass, 
+                    '  NZEQ': imp_super, 
+                    '  ZIPI': imp_charge
+                   }
 
+        for line_start in imp_data:
+            print_start = 0
+            for index, line in enumerate(read_data):
+                if line.startswith(line_start):
+                    print_start = index
+                    read_data[index] = read_data[index][:14] + imp_data[line_start]  + '\n'
+                if line[:6].startswith('      ') and print_start != 0 and index == print_start + 1:
+                    del read_data[index]
+
+
+        '''
         print_start = 0
         for index, line in enumerate(read_data):
             if line[:6] == '  ALFI':
@@ -1175,7 +1201,8 @@ ed yet
                 read_data[index] = read_data[index][:14] + imp_charge  + '\n'
             if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
                 read_data[index] = '             ' + '\n'
-    
+        '''
+   
         with open(sensitivity_name + '/' + 'jetto.in', 'w') as f:
             for line in read_data:
                 f.writelines(line)
@@ -1194,6 +1221,79 @@ ed yet
         modify_jset_time_polygon(self.path + self.baserun_name, self.time_start, self.time_end)
         modify_jettoin_time_polygon(self.path + self.baserun_name + '/jetto.in', self.time_start, self.time_end)
 
+
+    def change_impurity_puff(self):
+        self.puff_value = read_puff_jettosin(self.path + self.baserun_name + '/jetto.sin')
+        pulse_schedule = open_and_get_pulse_schedule(self.db, self.shot, self.run_start)
+        core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_start)
+
+        self.dens_feedback_time = pulse_schedule.time
+        self.line_ave_density = pulse_schedule.density_control.n_e_line.reference.data
+        line_ave_density = np.average(self.line_ave_density)
+        time_core_profiles = core_profiles.time
+
+        zeff_times = []
+        for profile_1d, time in zip(core_profiles.profiles_1d, time_core_profiles):
+            if time >0.2:
+                zeff_times.append(np.average(profile_1d.zeff))
+
+        zeff = np.average(np.asarray(zeff_times))
+
+        line_ave_times = []
+        for line_ave_point, time in zip(self.line_ave_density, self.dens_feedback_time):
+            if time > self.time_start and time < self.time_end:
+                line_ave_times.append(line_ave_point)
+
+        line_ave_density = np.average(np.asarray(line_ave_times))
+
+        self.puff_value = calculate_impurity_puff(self.puff_value, zeff, line_ave_density)
+
+        modify_jset_line(self.path + self.baserun_name, 'SancoBCPanel.Species1NeutralInflux.tpoly.value[0]', str(self.puff_value))
+        modify_jettosin_time_polygon_single(self.path + self.baserun_name + '/jetto.sin', ['  SPEFLX'], [self.puff_value])
+
+
+    def setup_time_polygon_impurity_puff(self):
+
+        '''
+        #WORK IN PROGRESS -------------------------------
+        cfg = cfg.parse_file('/afs/eufus.eu/user/g/g2mmarin/spearhead/fusion-scripts/duqtools.yaml')
+        cfg.create.jruns = '/pfs/work/g2mmarin/jetto/runs/'
+        cfg.create.runs_dir = 'test_duqtools'
+        created = CreateManager(cfg)
+        ops_dict = created.generate_ops_dict(base_only=True)
+        runs = created.make_run_models(ops_dict=ops_dict, absolute_dirpath=False)
+
+        jetto_template = jetto_tools.template.from_directory(path)
+        jetto_config = jetto_tools.config.RunConfig(jetto_template)
+
+        new_jetto_operation.operator = 'copyto'
+        new_jetto_operation.scale_to_error = False
+        new_jetto_operation.variable.name = 'speflx'
+        new_jetto_operation.value = [3,4,5,6,6]
+        new_jetto_operation.variable.lookup.doc = 'impurity puff timetrace'
+        new_jetto_operation.variable.lookup.name = 'speflx'
+        new_jetto_operation.variable.lookup.type = 'real'
+        #JsetField
+        new_jetto_operation.variable.lookup.keys[0].file = 'jetto.jset'
+        new_jetto_operation.variable.lookup.keys[0].field = 'SancoBCPanel.Species1NeutralInflux.tpoly.value[0]'
+        #NamelistField
+        new_jetto_operation.variable.lookup.keys[1].file = 'jetto.sin'
+        new_jetto_operation.variable.lookup.keys[1].field = 'SPEFLX'
+        new_jetto_operation.variable.lookup.keys[1].section= 'PHYSIC'
+
+        new_jetto_variable = new_jetto_operation.variable.lookup
+        system = get_system()
+        system.set_jetto_variable(path, 'speflx', -1, new_jetto_variable)
+        runs[0].operations.append(new_jetto_operation)
+        created.create_run(runs[0], force=False)
+        #WORK IN PROGRESS ------------------------------
+        '''
+
+        # Extracting value of the puff from the simulation
+        self.puff_value = read_puff_jettosin(self.path + self.baserun_name + '/jetto.sin')
+
+        modify_jset_time_polygon_puff(self.path + self.baserun_name, self.time_start, self.time_end, self.puff_value)
+        modify_jettosin_time_polygon(self.path + self.baserun_name + '/jetto.sin', self.time_start, self.time_end, self.puff_value)
 
     def modify_jetto_nbi_config(self, path_nbi_config):
 
@@ -1350,6 +1450,159 @@ def modify_jset_time_polygon(run_name, time_start, time_end):
     for line_start, new_content in zip(line_start_list, new_content_list):
         modify_jset_line(run_name, line_start, new_content)
 
+def modify_jset_time_polygon_puff(run_name, time_start, time_end, puff_value):
+
+    times = [time_start, time_start+0.05, time_end]
+    values = [0.0, puff_value, puff_value]
+
+    line_start_list, new_content_list = [], []
+
+    for itime in range(len(times)):
+        line_start_list.append('SancoBCPanel.Species1NeutralInflux.tpoly.select[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append('SancoBCPanel.Species1NeutralInflux.tpoly.time[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append('SancoBCPanel.Species1NeutralInflux.tpoly.value[' + str(itime) + ']')
+
+    for itime in range(len(times)):
+        new_content_list.append('true')
+    for time in times:
+        new_content_list.append(str(time))
+    for value in values:
+        new_content_list.append(str(value))
+
+    for line_start, new_content in zip(line_start_list, new_content_list):
+        modify_jset_line(run_name, line_start, new_content)
+
+
+def modify_jettosin_time_polygon(path_jetto_sin, time_start, time_end, puff_value):
+
+    # Turning the path to jetto.in in jetto.sin
+    # path_jetto_sin = path_jetto_in[:-2] + 's' + path_jetto_in[-2:]
+
+    fields_array = ['  SPEFLX', '  TINFLX']
+
+    times = [time_start, time_start+0.1, time_end]
+    values = [0.0, puff_value, puff_value]
+
+    numbers_array = [values, times]
+    #modify_jettoin_time_polygon_array(path_jetto_sin, fields_array, numbers_array)
+    modify_jettosin_multiline(path_jetto_sin, fields_array, numbers_array)
+
+def adapt_to_jettosin(values):
+
+    values_jettosin = []
+    for value in values:
+        values_jettosin.append(value)
+        for i in range(6):
+            values_jettosin.append(0.0)
+
+    return values_jettosin
+
+
+def read_file(path):
+
+    read_data = []
+    with open(path) as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+    return read_data
+
+
+def write_file(path, lines):
+
+    with open(path, 'w') as f:
+        for line in lines:
+            f.writelines(line)
+
+
+def modify_jettosin_multiline(path_jetto_sin, fields_array, numbers_array):
+
+    values, times = numbers_array[0], numbers_array[1]
+
+    values_jettosin = adapt_to_jettosin(values)
+    times_jettosin = adapt_to_jettosin(times)
+
+    line_arrays_values = reshape_array(values_jettosin, 5)
+    line_arrays_times = reshape_array(times_jettosin, 5)
+
+    read_data = read_file(path_jetto_sin)
+
+    read_data = remove_lines_after_marker('  SPEFLX', read_data)
+    read_data = remove_lines_after_marker('  TINFLX', read_data)
+
+    read_data = insert_lines_jettosin('  SPEFLX', read_data, line_arrays_values)
+    read_data = insert_lines_jettosin('  TINFLX', read_data, line_arrays_times)
+
+    write_file(path_jetto_sin, read_data)
+
+
+def insert_lines_jettosin(marker, read_data, line_arrays):
+
+    new_read_data = read_data[:]
+    for index, line in enumerate(read_data):
+        if line.startswith(marker):
+            new_read_data[index] = create_single_line_jettosin(marker + '  = ', line_arrays[0])
+            for jndex, line_array in enumerate(line_arrays[1:]):
+                new_read_data.insert(index+jndex+1, create_single_line_jettosin('        ', line_array))
+
+    return new_read_data
+
+def remove_lines_after_marker(marker, read_data):
+
+    index_start, index_end = find_index_start(marker, read_data), 0
+
+    for i, line in enumerate(read_data[index_start:]):
+        if not line.startswith('        '):
+            index_end = i
+            break
+
+    index_end = index_end+index_start
+    read_data_new = read_data[:index_start] + read_data[index_end:]
+
+    return read_data_new
+
+def find_index_start(start, read_data):
+
+    for i, line in enumerate(read_data):
+        if line.startswith(start):
+           index = i
+
+    return index + 1
+
+
+def reshape_array(array, chunk_size):
+    return [array[i:i+chunk_size] for i in range(0, len(array), chunk_size)]
+
+
+def create_single_line_jettosin(line_start, numbers_line):
+
+    line = line_start
+    for number in numbers_line:
+        num_spaces = 2
+        line += '  ' + f'{number:.3E}' + '  ,'
+
+    line += '\n'
+
+    return line
+
+def read_puff_jettosin(path_jetto_sin):
+
+    field_values = '  SPEFLX'
+
+    lines = []
+    with open(path_jetto_sin) as f:
+        lines_file = f.readlines()
+        for line in lines_file:
+            lines.append(line)
+
+    for line in lines:
+        if line.startswith(field_values):
+            puff_value = float(line[14:].split(',')[0])
+
+    return puff_value
 
 def modify_jettoin_time_polygon(path_jetto_in, time_start, time_end):
 
@@ -1386,6 +1639,25 @@ def modify_jettoin_time_polygon_single(path_jetto_in, fields, numbers):
         for line in lines:
             f.writelines(line)
 
+
+def modify_jettosin_time_polygon_single(path_jetto_sin, fields, numbers):
+
+    jetto_in_nameslist, lines = {}, []
+
+    for field, number in zip(fields, numbers):
+        jetto_in_nameslist[field] = number
+
+    lines = read_file(path_jetto_sin)
+
+    for index, line in enumerate(lines):
+        for jetto_name in jetto_in_nameslist:
+            if line.startswith(jetto_name):
+                numbers_line = [jetto_in_nameslist[jetto_name], 0.0, 0.0, 0.0, 0.0]
+                lines[index] = create_single_line_jettosin(jetto_name + '   =', numbers_line)
+
+    write_file(path_jetto_sin, lines)
+
+
 def modify_jettoin_time_polygon_array(path_jetto_in, fields, numbers):
 
     jetto_in_nameslist, lines = {}, []
@@ -1398,7 +1670,8 @@ def modify_jettoin_time_polygon_array(path_jetto_in, fields, numbers):
         str_array[field] = ''
         for number in jetto_in_nameslist[field]:
             num_spaces = 9 - len(str(number))
-            str_array[field] += '  ' + str(number) + ' '*num_spaces + ','
+            #str_array[field] += '  ' + str(number) + ' '*num_spaces + ','
+            str_array[field] += '  ' + f'{number:E}' + ' '*num_spaces + ','
         str_array[field] += '\n'
         str_array[field] = str_array[field][2:]
 
@@ -1474,6 +1747,17 @@ def get_extraname_fields(path):
 
     return extranamelist
 
+
+def calculate_impurity_puff(impurity_puff_ref, zeff, line_ave_density):
+
+    line_ave_density_ref, zeff_ref = 1.0e19, 1.0
+    scale_len_ave = line_ave_density/line_ave_density_ref
+    scale_zeff = (zeff-zeff_ref)*10
+    impurity_puff = scale_len_ave*scale_zeff*impurity_puff_ref
+
+    return impurity_puff
+
+
 def add_extraname_fields(extranamelist, key, values):
 
     # Values needs to be an array of strings
@@ -1482,6 +1766,7 @@ def add_extraname_fields(extranamelist, key, values):
     extranamelist_ordered = {key: value for key, value in sorted(extranamelist.items())}
 
     return extranamelist_ordered
+
 
 def put_extraname_fields(path, extranamelist):
 
@@ -1653,6 +1938,7 @@ def modify_llcmd(run_name, baserun_name, generator_username):
     with open(run_name + '/' + '.llcmd', 'w') as f:
         for line in read_data:
             f.writelines(line)
+
 
 def add_item_lookup(name, name_jset, namelist, name_type, name_dim, path):
 
