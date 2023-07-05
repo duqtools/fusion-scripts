@@ -1,0 +1,50 @@
+create:
+  operations:
+    - variable: t_start
+      operator: copyto
+      value: 2.875
+    - variable: t_end
+      operator: copyto
+      value: 2.885
+    - variable: major_radius
+      operator: copyto
+      value: 2
+    - variable: b_field
+      operator: copyto
+      value: 2
+  dimensions:
+  - values:
+    - 1.0
+    - 1.2
+    operator: multiply
+    scale_to_error: false
+    variable: t_e
+  - values:
+    - 1.0
+    - 1.2
+    operator: multiply
+    scale_to_error: false
+    variable: zeff
+  sampler:
+    method: latin-hypercube
+    n_samples: 3
+  data:
+    user: "g2mmarin"
+    imasdb: jet
+    run_in_start_at: 1
+    run_out_start_at: 2
+  template: /pfs/work/g2mmarin/jetto/runs/rungenerator_ohmic_duq
+  template_data:
+    user: g2mmarin
+    db: tcv
+    shot: 64965
+    run: 5
+extra_variables:
+  - name: my_extra_var
+    ids: core_profiles
+    path: profiles_1d/*/t_i_average
+    dims: [time, x]
+    type: IDS-variable
+submit:
+  submit_system: docker
+system: jetto-v220922
