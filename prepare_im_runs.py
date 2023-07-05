@@ -7,23 +7,27 @@ import pickle
 import math
 import functools
 import re
+#import scipy
 from scipy import integrate
 from scipy.interpolate import interp1d, UnivariateSpline
 #import idstools
-#from idstools import *
+
 from packaging import version
 from os import path
+from pathlib import Path
 
 import inspect
 import types
 
 import matplotlib.pyplot as plt
-
 from matplotlib.animation import FuncAnimation
 from IPython import display
 
 import xml.sax
 import xml.sax.handler
+import pdb
+import xarray as xr
+import copy
 
 '''
 The tools in this script are useful to:
@@ -53,12 +57,159 @@ if imas is not None:
 
 import sys
 sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
-
 import jetto_tools
-print(jetto_tools.__version__)
-print(jetto_tools.__file__)
 
-import copy
+import duqtools
+from duqtools.jetto import BaseJettoSystem
+
+path_in = '/pfs/work/g2mmarin/jetto/runs/run465_ohmic_predictive_new7'
+path_out = '/pfs/work/g2mmarin/jetto/runs/runtest_duqtools'
+
+
+import logging
+import warnings
+from pathlib import Path
+from typing import Any, Sequence
+
+import pandas as pd
+
+from duqtools.apply_model import apply_model
+from duqtools.cleanup import remove_run
+from duqtools.config import Config, cfg
+from duqtools.ids import ImasHandle
+from duqtools.matrix_samplers import get_matrix_sampler
+from duqtools.models import Locations, Run, Runs
+#from duqtools.models import Locations
+from duqtools.operations import add_to_op_queue, op_queue
+from duqtools.system import get_system
+from duqtools.create import CreateManager, create, create_entry
+
+from duqtools.jetto._jettovar_to_json import jettovar_to_json
+from duqtools.system import get_system
+
+
+#global cfg global config to unhack?
+
+
+path_in = Path('/pfs/work/g2mmarin/jetto/runs/rungenerator_ohmic_duq')
+path_out = Path('/pfs/work/g2mmarin/jetto/runs/run_duq_test')
+
+test = BaseJettoSystem()
+test.copy_from_template(path_in, path_out)
+
+
+'''
+cfg = cfg.parse_file('duqtools.yaml')
+
+path = Locations().jruns_path
+print(path)
+
+cfg.create.jruns = '/pfs/work/g2mmarin/jetto/runs/'
+cfg.create.runs_dir = 'test_duqtools'
+
+# global config to unhack?
+
+#print(cfg.create)
+#print(type(cfg.create))
+
+created = CreateManager(cfg)
+#created = CreateManager()
+
+ops_dict = created.generate_ops_dict(base_only=True)
+
+runs = created.make_run_models(ops_dict=ops_dict, absolute_dirpath=False)
+
+#for operation in runs[0].operations:
+#    print(operation)
+
+#for operation in runs[0].operations[0].__dir__():
+#    if not operation.startswith('_'):
+#        print(operation)
+
+#jetto_lookup = lookup.from_file(lookup_file)
+
+new_jetto_operation = runs[0].operations[2]
+
+print(new_jetto_operation)
+new_jetto_operation.variable.name = 'ibtsign'
+new_jetto_operation.value = 1
+#print(new_jetto_operation.variable.lookup)
+new_jetto_operation.variable.lookup.doc = 'Orientation of magnetic field'
+new_jetto_operation.variable.lookup.name = 'ibtsign'
+new_jetto_operation.variable.lookup.type = 'int'
+new_jetto_operation.variable.lookup.keys[1].file = 'jetto.in'
+new_jetto_operation.variable.lookup.keys[1].field = 'IBTSIGN'
+new_jetto_operation.variable.lookup.keys[1].section= 'nlist1'
+
+
+new_jetto_variable = new_jetto_operation.variable.lookup
+
+
+#new_jetto_variable.name = 'ibtsign'
+#new_jetto_variable.lookup = None
+
+path =  '/pfs/work/g2mmarin/jetto/runs/rungenerator_ohmic_duq/'
+
+#jetto_template = jetto_tools.template.from_directory(path)
+
+#if new_jetto_variable:
+#    extra_lookup = jetto_tools.lookup.from_json(jettovar_to_json(new_jetto_variable))
+#    jetto_template._lookup.update(extra_lookup)
+
+
+
+
+#jetto_config = jetto_tools.config.RunConfig(jetto_template)
+
+#jetto_config.export(path)
+
+#new_jetto_operation.operator = 'copyto'
+#new_jetto_operation.scale_to_error = False
+new_jetto_operation.variable.name = 'atmi'
+new_jetto_operation.value = 1
+new_jetto_operation.variable.lookup.doc = 'mass of first impurity'
+new_jetto_operation.variable.lookup.name = 'atmi'
+new_jetto_operation.variable.lookup.type = 'real'
+#JsetField
+new_jetto_operation.variable.lookup.keys[0].file = 'jetto.jset'
+new_jetto_operation.variable.lookup.keys[0].field = 'ImpOptionPanel.impurityMass[0]'
+#NamelistField
+new_jetto_operation.variable.lookup.keys[1].file = 'jetto.in'
+new_jetto_operation.variable.lookup.keys[1].field = 'ATMI'
+new_jetto_operation.variable.lookup.keys[1].section= 'nlist4'
+
+new_jetto_variable = new_jetto_operation.variable.lookup
+
+system = get_system()
+
+
+#system.set_jetto_variable(run_dir, model.variable.name, model.value, model.variable.lookup)
+#system.set_jetto_variable(path, 'ibtsign', -1, new_jetto_variable)
+system.set_jetto_variable(path, 'atmi', -1, new_jetto_variable)
+
+
+runs[0].operations.append(new_jetto_operation)
+
+print(runs[0].operations[-1])
+
+#'ibtsign', 'null', 'NLIST1', 'int', 'scalar'
+
+#'OutputExtraNamelist.selItems'
+
+#print(runs[0].operations)
+#print(runs[0].dict)
+#print(runs[0].json)
+#runs[0].dirname = '/pfs/work/g2mmarin/jetto/runs/runtest_duqtools' would need to construct type
+#runs[0].shortname = 'runtest_duqtools'
+
+
+created.create_run(runs[0], force=False)
+
+#print(runs)
+'''
+
+exit()
+
 
 '''
 
@@ -146,6 +297,167 @@ check_and_flip_ip(db, shot, run, shot_target, run_target)
 flip_ip(db, shot, run, shot_target, run_target)
 
 
+'''
+
+'''
+class BaseJettoSystem(AbstractSystem):
+    def submit_slurm(job: Job):
+        if not job.has_submit_script:
+            raise FileNotFoundError(job.submit_script)
+
+        submit_cmd = job.cfg.submit.submit_command.split()
+        cmd: list[Any] = [*submit_cmd, str(job.submit_script)]
+
+        logger.info(f'submitting script via slurm {cmd}')
+
+        ret = sp.run(cmd, check=True, capture_output=True)
+        logger.info('submission returned: ' + str(ret.stdout))
+        with open(job.lockfile, 'wb') as f:
+            f.write(ret.stdout)
+
+    def copy_from_template(source_drc: Path, target_drc: Path):
+        jetto_jset = jset.read(source_drc / 'jetto.jset')
+        jetto_namelist = namelist.read(source_drc / 'jetto.in')
+
+        jetto_sanco = None
+        if (source_drc / 'jetto.sin').exists():
+            jetto_sanco = namelist.read(source_drc / 'jetto.sin')
+
+        all_files = os.listdir(source_drc)
+
+        jetto_extra = _get_jetto_extra(all_files, jset=jetto_jset)
+
+        jetto_extra = [str(source_drc / file) for file in jetto_extra]
+
+        jetto_template = template.Template(jset=jetto_jset,
+                                           namelist=jetto_namelist,
+                                           lookup=jetto_lookup,
+                                           sanco_namelist=jetto_sanco,
+                                           extra_files=jetto_extra)
+
+        JettoSystem._apply_patches_to_template(jetto_template)
+
+        jetto_config = config.RunConfig(jetto_template)
+
+        jetto_config.export(target_drc)
+        lookup.to_file(jetto_lookup, target_drc /
+                       'lookup.json')  # TODO, this should be copied as well
+
+        for filename in (
+                'rjettov',
+                'utils_jetto',
+        ):
+            src = source_drc / filename
+            dst = target_drc / filename
+            shutil.copyfile(src, dst)
+            dst.chmod(dst.stat().st_mode | stat.S_IXUSR)
+
+
+class JettoSystemV220922(BaseJettoSystem):
+    """System that can be used to create runs for jetto.
+    The backend that is  assumed is jetto-v220922. The most important
+    difference with v210921 is that the IMAS data is handled locally
+    instead of via a public `imasdb`
+    This system can submit to various backends like docker, prominence
+    and the gateway.
+    ```yaml title="duqtools.yaml"
+    system: jetto-v220922
+    submit:
+      submit_system: docker
+    ```
+    """
+    def get_data_in_handle(*, dirname: Path, source: ImasHandle, seq_number: int, options):
+        return ImasHandle
+
+    def get_data_out_handle(*, dirname: Path, source: ImasHandle, seq_number: int, options):
+        return ImasHandle
+
+
+def _get_jetto_extra(filenames: List[str], *, jset):
+    jetto_extra: List[str] = []
+    for regex in _EXTRA_FILE_REGEXES:
+        jetto_extra.extend(filter(regex.match, filenames))
+
+  def write_batchfile(run_dir: Path, cfg: Config):
+        jetto_jset = jset.read(run_dir / 'jetto.jset')
+        _write_batchfile(run_dir, jetto_jset, tag=cfg.tag)
+
+    @staticmethod
+    def submit_job(job: Job):
+        # Make sure we get a new correct status
+        if (job.dir / 'jetto.status').exists():
+            os.remove(job.dir / 'jetto.status')
+
+        submit_system = job.cfg.submit.submit_system
+
+
+class Job:
+
+    def __init__(self, dir: Path):
+
+   def start(self):
+        click.echo(f'Submitting {self}\033[K')
+        self.submit()
+
+class Operation(OperatorMixin, BaseModel):
+    variable: str
+    value: float
+
+    def convert(self):
+        """Expand variable and convert to correct type."""
+        from duqtools.config import var_lookup
+        variable = var_lookup[self.variable]
+
+        if isinstance(variable, JettoVariableModel):
+            cls = JettoOperation
+        elif isinstance(variable, IDSVariableModel):
+            cls = IDSOperation
+        else:
+            raise NotImplementedError(
+                f'{self.variable} convert not implemented')
+
+        mapping = self.dict()
+        mapping['variable'] = variable
+
+        return cls(**mapping)
+
+class VariableConfigModel(BaseModel):
+    __root__: list[Union[JettoVariableModel, IDSVariableModel,
+                         IDS2JettoVariableModel]]
+
+    def to_variable_dict(self) -> dict:
+        """Return dict of variables."""
+        return {variable.name: variable for variable in self}
+
+
+class JettoVariableModel(BaseModel):
+    """Variable for describing variables specific to Jetto, The lookup table
+    can be defined as a JettoVar under the lookup key."""
+
+    type: str = Field('jetto-variable',
+                      description='Discriminator for the variable type.')
+
+    name: str = Field(description=f("""
+        Name of the variable.
+        Used for the lookup table to find actual fields.
+        """))
+    lookup: Optional[JettoVar] = Field(description=f("""
+    Description of the fields that have to be updated for a Jetto Variable
+    """))
+
+
+class JettoVar(BaseModel):
+    """These describe the jetto variables."""
+    doc: str = Field(description='Docstring for the variable.')
+    name: str = Field(description='Name of the variable.')
+    type: Literal['str', 'int', 'float'] = Field(
+        description=f('Type of the variable (str, int, float)'))
+    keys: list[JettoField] = Field(description=f(
+        'Jetto keys to update when this jetto variable is requested'))
+
+    available: get_type
+
+#Basemodel is separately described in pydantic. Can use dict(), json(), parse_obj(), schema(), schema_json()
 '''
 
 class IntegratedModellingRuns:
@@ -248,6 +560,7 @@ class IntegratedModellingRuns:
             self.baserun_name = 'run000'  + str(self.shot) + 'base'
 
         self.path_baserun = self.path + self.baserun_name
+
 
         self.tag_list = []
         for sensitivity in self.sensitivity_list:
@@ -744,6 +1057,8 @@ class IntegratedModellingRuns:
             #config['btin'] = b0
             config['rmj'] = r0
 
+# Try to build a template as is done in system.py
+
         if self.esco_timesteps:
             config.esco_timesteps = self.esco_timesteps
         if self.output_timesteps:
@@ -803,6 +1118,7 @@ class IntegratedModellingRuns:
         #summary = open_and_get_summary(self.db, self.shot, self.run_exp)
         #self.summary_time = summary.time
         #self.line_ave_density = summary.line_average.n_e.value
+
 
         pulse_schedule = open_and_get_pulse_schedule(self.db, self.shot, self.run_start)
         self.dens_feedback_time = pulse_schedule.time
