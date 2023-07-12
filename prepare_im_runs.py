@@ -205,6 +205,7 @@ class IntegratedModellingRuns:
         self.line_ave_density = None
         self.json_input = json_input
         self.sensitivity_list = sensitivity_list
+        self.backend_input = get_backend(self.db, self.shot, self.run_input)
 
         # Trying to be a little flexible with the generator name. It is not used if I am only setting the input.
         # Still mandatory argument, should not be forgotten
@@ -386,10 +387,10 @@ class IntegratedModellingRuns:
 
         # To save time, equilibrium and core profiles are not extracted if they already exist
         if not self.core_profiles:
-            self.core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_input)
+            self.core_profiles = open_and_get_ids(self.db, self.shot, self.run_input, 'core_profiles')
 
         if not self.equilibrium:
-            self.equilibrium = open_and_get_equilibrium(self.db, self.shot, self.run_input)
+            self.equilibrium = open_and_get_ids(self.db, self.shot, self.run_input, 'equilibrium')
 
         time_eq = self.equilibrium.time
         time_cp = self.core_profiles.time
@@ -404,7 +405,7 @@ class IntegratedModellingRuns:
         if self.time_end == 100:
             self.time_end = min(max(time_eq), max(time_cp))
         if self.time_end == 'auto':
-            summary = open_and_get_summary(self.db, self.shot, self.run_input)
+            summary = open_and_get_ids(self.db, self.shot, self.run_input, summary)
             kfactor = 0.05
             mu0 = 4 * np.pi * 1.0e-7
             time_sim = kfactor * mu0 * np.abs(summary.global_quantities.ip.value[0] * summary.global_quantities.r0.value)
@@ -458,7 +459,7 @@ class IntegratedModellingRuns:
         #self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, b0, r0)
 
         if self.setup_nbi_flag:
-            nbi = open_and_get_nbi(self.db, self.shot, self.run_start)
+            nbi = open_and_get_ids(self.db, self.shot, self.run_start, 'nbi')
             if nbi.time != np.asarray([]):
                 self.setup_nbi(path_nbi_config = self.path_nbi_config)
             else:
@@ -504,11 +505,13 @@ class IntegratedModellingRuns:
 
         modify_llcmd(self.baserun_name, self.generator_name, self.generator_username)
 
-        self.copy_ids_input()
-
+        if self.backend_input == imasdef.MDSPLUS_BACKEND:
+            self.copy_ids_input_mdsplus()
+        elif self.backend_input == imasdef.HDF5_BACKEND:
+            self.copy_ids_input_hdf5()
 
     # This will work with MDSPLUS. Should code something else for HDF5
-    def copy_ids_input(self):
+    def copy_ids_input_mdsplus(self):
 
         if self.run_start < 10:
             run_str = '000' + str(self.run_start)
@@ -533,13 +536,44 @@ class IntegratedModellingRuns:
             shutil.rmtree(self.path_baserun+ '/imasdb/' + db_generator)
 
         # This deletes the IDS of the generator
-        for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/0/'):
-            file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3/0/', filename)
-            os.remove(file_path)
+        self.delete_generator()
 
         shutil.copyfile(path_ids_input + '.characteristics', path_output + '.characteristics')
         shutil.copyfile(path_ids_input + '.datafile', path_output + '.datafile')
         shutil.copyfile(path_ids_input + '.tree', path_output + '.tree')
+
+    def copy_ids_input_hdf5(self):
+
+        path_ids_input = '/afs/eufus.eu/user/g/' + self.username + '/public/imasdb/' + self.db + '/3/' + str(self.shot) + '/' + str(self.run_start)
+        path_output = self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/' + str(1)
+
+        # This creates the folder when the machine is not the same as in the generator case
+        if not os.path.exists(self.path_baserun+ '/imasdb/' + self.db):
+            db_generator = os.listdir(self.path_baserun+ '/imasdb/')[0]
+            shutil.copytree(self.path_baserun+ '/imasdb/' + db_generator, self.path_baserun+ '/imasdb/' + self.db)
+            shutil.rmtree(self.path_baserun+ '/imasdb/' + db_generator)
+
+        # This deletes the IDS of the generator
+        self.delete_generator()
+
+        folder_path = self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/' + str(1)
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        copy_files(path_ids_input, path_output)
+
+    def delete_generator(self):
+
+        if os.path.exists(self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/master.h5'):
+            for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/'):
+                file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3' + str(self.shot) + '/', filename)
+                os.remove(file_path)
+
+        elif os.path.exists(self.path_baserun+ '/imasdb/' + self.db + '/3/0/ids_649650001.tree'):
+            for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/0/'):
+                file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3/0/', filename)
+                os.remove(file_path)
+            shutil.rmtree(self.path_baserun+ '/imasdb/' + self.db + '/3/0')
 
 
     def create_sensitivities(self):
@@ -552,10 +586,10 @@ class IntegratedModellingRuns:
 
         # To save time, equilibrium and core profiles are not extracted if they already exist
         if not self.core_profiles:
-            self.core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_input)
+            self.core_profiles = open_and_get_ids(self.db, self.shot, self.run_input, 'core_profiles')
 
         if not self.equilibrium:
-            self.equilibrium = open_and_get_equilibrium(self.db, self.shot, self.run_input)
+            self.equilibrium = open_and_get_ids(self.db, self.shot, self.run_input, 'equilibrium')
 
         time_eq = self.equilibrium.time
         time_cp = self.core_profiles.time
@@ -667,9 +701,9 @@ class IntegratedModellingRuns:
         # Only extract once. This takes time so it's only for speed purposes
 
         if not self.core_profiles:
-            self.core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_input)
+            self.core_profiles = open_and_get_ids(self.db, self.shot, self.run_input, 'core_profiles')
         if not self.equilibrium:
-            self.equilibrium = open_and_get_equilibrium(self.db, self.shot, self.run_input)
+            self.equilibrium = open_and_get_ids(self.db, self.shot, self.run_input, 'equilibrium')
 
         # Here I can set the initial time as the time where I can find the first measurement in core profiles or equilibrium
 
@@ -712,9 +746,9 @@ class IntegratedModellingRuns:
         b0, r0 = self.get_r0_b0()
 
         if not self.core_profiles:
-            self.core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_input)
+            self.core_profiles = open_and_get_ids(self.db, self.shot, self.run_input, 'core_profiles')
         if not self.equilibrium:
-            self.equilibrium = open_and_get_equilibrium(self.db, self.shot, self.run_input)
+            self.equilibrium = open_and_get_ids(self.db, self.shot, self.run_input, 'equilibrium')
 
         if not os.path.exists(self.path_baserun):
             shutil.copytree(self.path_generator, self.path_baserun)
@@ -811,11 +845,13 @@ class IntegratedModellingRuns:
 
         # Could add a check if run_exp exists. Should become the runinput though...
 
-        #summary = open_and_get_summary(self.db, self.shot, self.run_exp)
+        #summary = open_and_get_ids(self.db, self.shot, self.run_exp, 'summary')
         #self.summary_time = summary.time
         #self.line_ave_density = summary.line_average.n_e.value
 
-        pulse_schedule = open_and_get_pulse_schedule(self.db, self.shot, self.run_start)
+        print(self.db, self.shot, self.run_start)
+
+        pulse_schedule = open_and_get_ids(self.db, self.shot, self.run_start, 'pulse_schedule')
         self.dens_feedback_time = pulse_schedule.time
         self.line_ave_density = pulse_schedule.density_control.n_e_line.reference.data
 
@@ -1224,8 +1260,8 @@ class IntegratedModellingRuns:
 
     def change_impurity_puff(self):
         self.puff_value = read_puff_jettosin(self.path + self.baserun_name + '/jetto.sin')
-        pulse_schedule = open_and_get_pulse_schedule(self.db, self.shot, self.run_start)
-        core_profiles = open_and_get_core_profiles(self.db, self.shot, self.run_start)
+        pulse_schedule = open_and_get_ids(self.db, self.shot, self.run_start, 'pulse_schedule')
+        core_profiles = open_and_get_ids(self.db, self.shot, self.run_start, 'core_profiles')
 
         self.dens_feedback_time = pulse_schedule.time
         self.line_ave_density = pulse_schedule.density_control.n_e_line.reference.data
@@ -1297,8 +1333,7 @@ class IntegratedModellingRuns:
 
     def modify_jetto_nbi_config(self, path_nbi_config):
 
-        nbi_ids = open_and_get_nbi(self.db, self.shot, self.run_start)
-
+        nbi_ids = open_and_get_ids(self.db, self.shot, self.run_start, 'nbi')
 
         # Set incipit
         energy, A, Z = [], [], []
@@ -1371,6 +1406,17 @@ class IntegratedModellingRuns:
         with open(path_nbi_config + self.baserun_name, 'w') as f:
             for line in lines:
                 f.writelines(line)
+
+
+def copy_files(source_folder, destination_folder):
+    # Get a list of all files in the source folder
+    files = os.listdir(source_folder)
+
+    # Iterate through the files and copy them to the destination folder
+    for file_name in files:
+        source_file = os.path.join(source_folder, file_name)
+        destination_file = os.path.join(destination_folder, file_name)
+        shutil.copy2(source_file, destination_file)
 
 
 def change_line_nbi(line, start, values):
@@ -1970,116 +2016,51 @@ def add_item_lookup(name, name_jset, namelist, name_type, name_dim, path):
         for line in read_data:
             f.writelines(line)
 
-# Redefined for when prepare_im_input is not imported
-def open_and_get_core_profiles(db, shot, run, username = ''):
 
-    if username == '':
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
+def get_backend(db, shot, run, username=None):
+
+    if not username: username = getpass.getuser()
+
+    imas_backend = imasdef.HDF5_BACKEND
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+
+    op = data_entry.open()
+    if op[0]<0:
+        imas_backend = imasdef.MDSPLUS_BACKEND
+
+    data_entry.close()
+
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    op = data_entry.open()
+    if op[0]<0:
+        print('Input does not exist. Aborting generation')
+
+    data_entry.close()
+
+    return imas_backend
+
+
+def open_and_get_ids(db, shot, run, ids_name, username=None, backend=None):
+
+    if not backend: backend = get_backend(db, shot, run)
+    if not username: username = getpass.getuser()
+
+    data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
     if op[0]<0:
         cp=data_entry.create()
-        print(cp[0])
         if cp[0]==0:
             print("data entry created")
     elif op[0]==0:
         print("data entry opened")
 
-    core_profiles = data_entry.get('core_profiles')
+    ids_opened = data_entry.get(ids_name)
     data_entry.close()
 
-    return(core_profiles)
+    return(ids_opened)
 
-def open_and_get_equilibrium(db, shot, run, username = ''):
-
-    if username == '':
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    equilibrium = data_entry.get('equilibrium')
-    data_entry.close()
-
-    return(equilibrium)
-
-def open_and_get_pulse_schedule(db, shot, run, username = ''):
-
-    if username == '':
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    pulse_schedule = data_entry.get('pulse_schedule')
-    data_entry.close()
-
-    return(pulse_schedule)
-
-def open_and_get_core_sources(db, shot, run, username = ''):
-
-    if username == '':
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    core_sources = data_entry.get('core_profiles')
-    data_entry.close()
-
-    return(core_sources)
-
-def open_and_get_nbi(db, shot, run, username = ''):
-
-    if username == '':
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run, user_name=username)
-
-    op = data_entry.open()
-
-    if op[0]<0:
-        cp=data_entry.create()
-        print(cp[0])
-        if cp[0]==0:
-            print("data entry created")
-    elif op[0]==0:
-        print("data entry opened")
-
-    nbi = data_entry.get('nbi')
-    data_entry.close()
-
-    return(nbi)
 
 def fit_and_substitute(x_old, x_new, data_old):
 
