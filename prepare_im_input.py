@@ -17,7 +17,7 @@ from os import path
 import inspect
 import types
 import pdb
-
+import time
 
 import matplotlib.pyplot as plt
 
@@ -64,13 +64,10 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     '''
 
-    username = getpass.getuser()
     #average, rebase, nbi_heating, flat_q_profile = False, False, False, False
     #correct_Zeff, set_boundaries, correct_boundaries, adding_early_profiles = False, False, False, False
-
-
-    get_backend(db, shot, run)
-
+    username = getpass.getuser()
+    backend = get_backend(db, shot, run_input)
 
     # Checking that everything is fine with the input options
     if json_input['zeff profile'] not in json_input['zeff profile options']:
@@ -88,12 +85,12 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # To save computational time, equilibrium and core profiles might be passed if they have already been extracted
     if not core_profiles:
-        core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+        core_profiles = open_and_get_ids(db, shot, run_input, 'core_profiles', backend = backend)
     if not equilibrium:
-        equilibrium = open_and_get_ids(db, shot, run, 'equilibrium')
+        equilibrium = open_and_get_ids(db, shot, run_input, 'equilibrium', backend = backend)
 
     if json_input['misalignment']['flag']:
-        correct_misalligned_hrts(db, shot, run_input, run_input+1, json_input['misalignment']['schema'])
+        correct_misalligned_hrts(db, shot, run_input, run_input+1, json_input['misalignment']['schema'], backend = backend)
         run_input = run_input+1
 
     # Boundaries instructions are read only if 'set boundaries' is true (Moved in the function itself)
@@ -139,7 +136,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     # Checking that all the idss that will be used are free
     if not force_input_overwrite:
         for index in range(run_start - generated_idss_length, run_start, 1):
-            data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, index, user_name=username)
+            data_entry = imas.DBEntry(backend, db, shot, index, user_name=username)
             op = data_entry.open()
 
             if op[0]==0:
@@ -163,7 +160,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         time_start = time_start
 
     if json_input['instructions']['average']:
-        average_integrated_modelling(db, shot, run_input, run_start, time_start, time_end)
+        average_integrated_modelling(db, shot, run_input, run_start, time_start, time_end, backend = backend)
         print('Averaging on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -172,7 +169,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     elif json_input['instructions']['rebase']:
         rebase_option, rebase_num_times = json_input['rebase']['option'], json_input['rebase']['num times']
-        rebase_integrated_modelling(db, shot, run_input, run_start, ['equilibrium'], option = rebase_option, num_times = rebase_num_times)
+        rebase_integrated_modelling(db, shot, run_input, run_start, ['equilibrium'], option = rebase_option, num_times = rebase_num_times, backend = backend)
         print('Rebasing on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -180,7 +177,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     if json_input['instructions']['flipping ip']:
         # Currently flips both Ip and b0
-        flip_ip(db, shot, run_input, shot, run_start)
+        flip_ip(db, shot, run_input, shot, run_start, backend = backend)
         print('flipping ip on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -191,55 +188,55 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # Updates the nbi and if needed multiplies the power for sensitivity purposes
     if json_input['instructions']['nbi heating']:
-        setup_nbi_ids(db, shot, run_input, run_start, backend='mdsplus', power_multiplier = json_input['nbi options']['power_multiplier'])
+        setup_nbi_ids(db, shot, run_input, run_start, power_multiplier = json_input['nbi options']['power_multiplier'], backend = backend)
         print('Preparing nbi on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     ion_number = check_ion_number(db, shot, run_input)
 
     if json_input['instructions']['add early profiles']:
-        add_early_profiles(db, shot, run_input, run_start, extra_early_options = json_input['extra early options'])
+        add_early_profiles(db, shot, run_input, run_start, extra_early_options = json_input['extra early options'], backend = backend)
         print('Adding early profiles on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     if json_input['instructions']['set boundaries']:
         #set_boundaries(db, shot, run_input, run_start, te_sep = boundary_sep_te, ti_sep = boundary_sep_ti, method_te = boundary_method_te, method_ti = boundary_method_ti, bound_te_down = json_input['boundary instructions']['te bound down'], bound_te_up = json_input['boundary instructions']['te bound up'])
-        set_boundaries(db, shot, run_input, run_start, extra_boundary_instructions = json_input['boundary instructions'])
+        set_boundaries(db, shot, run_input, run_start, extra_boundary_instructions = json_input['boundary instructions'], backend = backend)
         print('Setting boundaries te and ti on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['peak temperature']:
-        peak_temperature(db, shot, run_input, run_start, mult = json_input['instructions']['peak temperature'])
+        peak_temperature(db, shot, run_input, run_start, mult = json_input['instructions']['peak temperature'], backend = backend)
         print('Peaking temperature on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     if json_input['instructions']['multiply electron temperature']:
-        shift_profiles('te', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron temperature'])
+        shift_profiles('te', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron temperature'], backend = backend)
         print('Multipling electron temperature on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['multiply ion temperature']:
-        shift_profiles('ti', db, shot, run_input, run_start, mult = json_input['instructions']['multiply ion temperature'])
+        shift_profiles('ti', db, shot, run_input, run_start, mult = json_input['instructions']['multiply ion temperature'], backend = backend)
         print('Multipling ion temperature on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['correct ion temperature']:
-        correct_ion_temperature(db, shot, run_input, run_start, ratio_limit = json_input['instructions']['correct ion temperature'])
+        correct_ion_temperature(db, shot, run_input, run_start, ratio_limit = json_input['instructions']['correct ion temperature'], backend = backend)
         print('Correcting the ion temperature ratio on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['multiply electron density']:
-        shift_profiles('ne', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron density'])
+        shift_profiles('ne', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron density'], backend = backend)
         print('Multipling electron density on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['multiply q profile']:
-        alter_q_profile_same_q95(db, shot, run_input, run_start, mult = json_input['instructions']['multiply q profile'])
+        alter_q_profile_same_q95(db, shot, run_input, run_start, mult = json_input['instructions']['multiply q profile'], backend = backend)
         print('Multipling q profile, maintaining q95, on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['correct boundaries']:
-        correct_boundaries_te(db, shot, run_input, db, shot, run_start)
+        correct_boundaries_te(db, shot, run_input, run_start, backend = backend)
         print('Correcting te at the boundaries on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -251,34 +248,34 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if json_input['zeff evolution'] != 'original':
         zeff_option = json_input['zeff evolution']
         if zeff_option == 'flat maximum':
-            set_flat_Zeff(db, shot, run_input, run_start, 'maximum')
+            set_flat_Zeff(db, shot, run_input, run_start, 'maximum', backend = backend)
             print('Setting flat Zeff with maximum value on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif zeff_option == 'flat minimum':
-            set_flat_Zeff(db, shot, run_input, run_start, 'minimum')
+            set_flat_Zeff(db, shot, run_input, run_start, 'minimum', backend = backend)
             print('Setting flat Zeff with minimum value on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif zeff_option == 'flat median':
-            set_flat_Zeff(db, shot, run_input, run_start, 'median')
+            set_flat_Zeff(db, shot, run_input, run_start, 'median', backend = backend)
             print('Setting flat Zeff with median value on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'impurity from flattop':
-            set_impurity_composition_from_flattop(db, shot, run_input, run_start, verbose = verbose)
+            set_impurity_composition_from_flattop(db, shot, run_input, run_start, verbose = verbose, backend = backend)
             print('Setting impurity composition from flattop on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and json_input['instructions']['average'] and zeff_option == 'impurity from flattop':
             print('Cannot extract the impurities from flattop when averaging')
             exit()
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'linear descending zeff':
-            set_linear_descending_zeff(db, shot, run_input, run_start)
+            set_linear_descending_zeff(db, shot, run_input, run_start, backend = backend)
             print('Setting descending initial impurity composition on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'ip ne scaled':
-            set_ip_ne_scaled_zeff(db, shot, run_input, run_start)
+            set_ip_ne_scaled_zeff(db, shot, run_input, run_start, backend = backend)
             print('Setting impurity composition using ne and ip scaling on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'hyperbole':
-            set_hyperbole_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff evolution parameter'], zeff_max = json_input['zeff max evolution'])
+            set_hyperbole_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff evolution parameter'], zeff_max = json_input['zeff max evolution'], backend = backend)
             print('Setting descending hiperbolic initial impurity composition on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         else:
@@ -286,29 +283,31 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
             exit()
 
     if json_input['zeff profile'] == 'parabolic zeff':
-        set_parabolic_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        set_parabolic_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'], backend = backend)
         print('Setting parabolic zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'peaked zeff':
-        set_peaked_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        set_peaked_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'], backend = backend)
         print('Setting peaked zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'peaked zeff evolved':
-        set_peaked_ev_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        set_peaked_ev_zeff_profile(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'], backend = backend)
         print('Setting peaked zeff profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
     elif json_input['zeff profile'] == 'low edge zeff':
-        set_low_edge_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'])
+        set_low_edge_zeff(db, shot, run_input, run_start, zeff_param = json_input['zeff profile parameter'], backend = backend)
         print('Setting zeff profile low at the edge on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     if json_input['instructions']['correct zeff']:
-        correct_zeff(db, shot, run_input, db, shot, run_start)
+        correct_zeff(db, shot, run_input, db, shot, run_start, backend = backend)
         print('correcting zeff on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
+
     if json_input['instructions']['flat q profile']:
-        use_flat_q_profile(db, shot, run_input, run_start)
+
+        use_flat_q_profile(db, shot, run_input, run_start, backend = backend)
         print('setting a flat q profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -319,7 +318,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
 class IntegratedModellingDict:
 
-    def __init__(self, db, shot, run, username='', backend='mdsplus'):
+    def __init__(self, db, shot, run, username=None, backend=None):
 
         # It might be possible to generalize part of the following functions. Left for future work
         # The extraction might also be simplified using partial_get. I am not sure if the filling part can also be simplified...
@@ -329,6 +328,10 @@ class IntegratedModellingDict:
         self.shot = shot
         self.run = run
         self.all_keys = copy.deepcopy(keys_list)
+
+        if not username: username = getpass.getuser()
+        if not backend: backend = get_backend(db, shot, run)
+
         self.ids_struct = open_integrated_modelling(db, shot, run, username=username, backend=backend)
         self.extract_ids_dict()
 
@@ -1420,7 +1423,6 @@ class IntegratedModellingDict:
                 self.ids_struct[ids_iden].flux_control.i_plasma.reference.data = self.ids_dict['traces']['global_quantities.ip']
             self.ids_struct[ids_iden].flux_control.i_plasma.reference.time = self.ids_dict['time']['core_profiles']
 
-
         if len(self.ids_dict['traces']['line_average.n_e.value']) !=0:
             if len(self.ids_dict['traces']['line_average.n_e.value']) != 1:
                 self.ids_struct[ids_iden].density_control.n_e_line.reference.data = fit_and_substitute(self.ids_dict['time']['summary'], self.ids_struct[ids_iden].time, self.ids_dict['traces']['line_average.n_e.value'])
@@ -1454,10 +1456,13 @@ class IntegratedModellingDict:
 
 # -------------------------------------------- MANIPULATE IDSS -----------------------------------------------
 
-def correct_misalligned_hrts(db, shot, run, run_target, schema):
+def correct_misalligned_hrts(db, shot, run, run_target, schema, username = None, backend = None):
+
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
     # Extract data
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
     ne_fit, ne_exp = [], []
     for profile_1d in core_profiles.profiles_1d:
         ne_fit.append(profile_1d.electrons.density)
@@ -1485,36 +1490,36 @@ def correct_misalligned_hrts(db, shot, run, run_target, schema):
     # Create the new IDS and syncronizing the new core profiles
     ids_struct = {}
     ids_struct['core_profiles'] = core_profiles
-    put_integrated_modelling(db, shot, run, run_target, ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_struct, backend = backend)
 
 
-def select_interval_ids(db, shot, run, run_target, time_start, time_end, username = None):
+def select_interval_ids(db, shot, run, run_target, time_start, time_end, username = None, backend = None):
 
-    if not username:
-        username = getpass.getuser()
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_data.select_interval(time_start, time_end)
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
-def average_integrated_modelling(db, shot, run, run_target, time_start, time_end, username = None):
+def average_integrated_modelling(db, shot, run, run_target, time_start, time_end, username = None, backend = None):
 
     '''
 
     Average all the fields in integrated modelling that are useful for the integrated modelling and saves a new ids with just the averages
 
     '''
-    if not username:
-        username = getpass.getuser()
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_data.select_interval(time_start, time_end)
     ids_data.average_traces_profile()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
-def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None):
+def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option = 'core profiles', num_times = 100, username = None, backend = None):
 
     '''
 
@@ -1522,31 +1527,31 @@ def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option
 
     '''
 
-    if not username:
-        username = getpass.getuser()
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
     if option == 'core profiles':
-        core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+        core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', backend = backend)
         new_times = core_profiles.times
 
-        ids_data = IntegratedModellingDict(db, shot, run, username = username)
+        ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
         ids_data.update_times(new_times, changing_idss)
 
     if option == 'linear':
         for changing_ids in changing_idss:
             #Maintain list structure when passing to general update times
-            ids_opened = open_and_get_ids(db, shot, run, changing_ids)
+            ids_opened = open_and_get_ids(db, shot, run, changing_ids, backend = backend)
             times = ids_opened.time
             time_start, time_end = min(times), max(times)
             new_times = np.arange(time_start, time_end, (time_end - time_start)/num_times)
 
-            ids_data = IntegratedModellingDict(db, shot, run, username = username)
+            ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
             #Maintain list structure when passing to general update times
             ids_data.update_times(new_times, [changing_ids])
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
-def smooth_t_and_d_ids_new(db, shot, run, db_target, shot_target, run_target, username = '', username_target = ''):
+def smooth_t_and_d_ids_new(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, backend = None):
 
     '''
 
@@ -1554,13 +1559,14 @@ def smooth_t_and_d_ids_new(db, shot, run, db_target, shot_target, run_target, us
 
     '''
 
-    if username == '': username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
+    if not username: username = getpass.getuser()
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     new_times = double_time(core_profiles.time)
     ids_data.update_times(new_times, changing_idss)
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
 # Might want to move this guys in another file with other small functions that I use here and there
@@ -1579,7 +1585,7 @@ def rgetattr(obj, attr, *args):
 # ------------------------- EXTRA TOOLS TO OPEN AND PUT IDSS ------------------------------
 
 
-def open_integrated_modelling(db, shot, run, username='', backend='mdsplus'):
+def open_integrated_modelling(db, shot, run, username=None, backend=None):
 
     '''
 
@@ -1588,14 +1594,12 @@ def open_integrated_modelling(db, shot, run, username='', backend='mdsplus'):
 
     '''
 
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
+    if not backend: backend = get_backend(db, shot, run)
 
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
+    if not username:
+        data_entry = imas.DBEntry(backend, db, shot, run, user_name=getpass.getuser())
     else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+        data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1624,24 +1628,33 @@ def open_integrated_modelling(db, shot, run, username='', backend='mdsplus'):
 
 def get_backend(db, shot, run, username=None):
 
-    if not username:
-        username = getpass.getuser()
+    if not username: username = getpass.getuser()
 
     imas_backend = imasdef.HDF5_BACKEND
-
     data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
 
+    op = data_entry.open()
+    if op[0]<0:
+        imas_backend = imasdef.MDSPLUS_BACKEND
 
-def open_and_get_ids(db, shot, run, ids_name, username=None, backend='mdsplus'):
+    data_entry.close()
 
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    op = data_entry.open()
+    if op[0]<0:
+        print('Input does not exist. Aborting generation')
 
-    if not username:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry.close()
+
+    return imas_backend
+
+
+def open_and_get_ids(db, shot, run, ids_name, username=None, backend=None):
+
+    if not backend: backend = get_backend(db, shot, run)
+    if not username: username = getpass.getuser()
+
+    data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1659,16 +1672,12 @@ def open_and_get_ids(db, shot, run, ids_name, username=None, backend='mdsplus'):
     return(ids_opened)
 
 
-def open_and_get_nbi(db, shot, run, username='', backend='mdsplus'):
+def open_and_get_nbi(db, shot, run, username=None, backend=None):
 
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1685,22 +1694,17 @@ def open_and_get_nbi(db, shot, run, username='', backend='mdsplus'):
 
     return(nbi)
 
-def open_and_get_all(db, shot, run, username='', backend='mdsplus'):
+def open_and_get_all(db, shot, run, username=None, backend=None):
 
     '''
 
     Opens all the idss create for TCV. This should be done with IMASpy when I learn how to do it.
 
     '''
+    if not username: username = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
-
-    if username == '':
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=getpass.getuser())
-    else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1714,7 +1718,7 @@ def open_and_get_all(db, shot, run, username='', backend='mdsplus'):
 
     return(ids_dict)
 
-def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mdsplus'):
+def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend=None):
 
     '''
 
@@ -1722,14 +1726,12 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mds
 
     '''
 
-    imas_backend = imasdef.MDSPLUS_BACKEND
-    if backend == 'hdf5':
-        imas_backend = imasdef.HDF5_BACKEND
+    if not backend: backend = get_backend(db, shot, run)
 
     username = getpass.getuser()
-    copy_ids_entry(username, db, shot, run, shot, run_target)
+    copy_ids_entry(db, shot, run, run_target, username=username, backend=backend)
 
-    data_entry = imas.DBEntry(imas_backend, db, shot, run_target, user_name=getpass.getuser())
+    data_entry = imas.DBEntry(backend, db, shot, run_target, user_name=username)
     ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
 
     op = data_entry.open()
@@ -1742,23 +1744,32 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend='mds
 
     data_entry.close()
 
+    #print(db, shot, run, run_target, username, backend)
+    #print('created')
+    #exit()
+
+
 
 # ------------------------- EXTRA TOOLS TO MODIFY IDSS ------------------------------
 
 # ------------------------------- ZEFF MANIPULATION ---------------------------------
 
 # Name changed. Need to change it in prepare input
-def set_flat_Zeff(db, shot, run, run_target, option, username = ''):
+def set_flat_Zeff(db, shot, run, run_target, option, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
 
     '''
 
     Writes a new ids with a flat Zeff.
 
     '''
-    if username == '':
-        username = getpass.getuser()
 
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
     Zeff = np.array([])
 
     for profile_1d in core_profiles.profiles_1d:
@@ -1800,15 +1811,15 @@ def set_flat_Zeff(db, shot, run, run_target, option, username = ''):
     for index, zeff_slice in enumerate(Zeff):
         core_profiles.profiles_1d[index].zeff = zeff_slice
 
-    copy_ids_entry(username, db, shot, run, shot, run_target)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run_target, user_name=username)
+    data_entry_target = imas.DBEntry(backend, db, shot, run_target, user_name=username)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
     data_entry_target.close()
 
-def correct_zeff(db, shot, run, db_target, shot_target, run_target, username = '', username_target = ''):
+def correct_zeff(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, backend = None):
 
     '''
 
@@ -1818,11 +1829,11 @@ t die close to the boundaries.
     Uses new_classes to do it
 
     '''
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    if username == '':
-        username=getpass.getuser()
-
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
 
     ids_dict = ids_data.ids_dict
 
@@ -1834,13 +1845,13 @@ t die close to the boundaries.
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     print('zeff corrected')
 
 # WORK IN PROGRESS
 
-def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None):
+def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
 
     '''
 
@@ -1848,16 +1859,13 @@ def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = No
 
     '''
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ids_dict['profiles_1d']['zeff'] = np.where(ids_dict['profiles_1d']['zeff'] > 1, ids_dict['profiles_1d']['zeff'], 1.02)
@@ -1883,22 +1891,19 @@ def set_parabolic_zeff(db, shot, run, run_target, zeff_param = 1, db_target = No
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     print('zeff turned parabolic')
 
-def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
+def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ids_dict['profiles_1d']['zeff'] = np.where(ids_dict['profiles_1d']['zeff'] > 1, ids_dict['profiles_1d']['zeff'], 1.02)
@@ -1929,18 +1934,15 @@ def set_peaked_zeff_profile(db, shot, run, run_target, db_target = None, shot_ta
 
 # ----------------------------- WORK IN PROGRESS ----------------------------------
 
-def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1):
+def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, zeff_param = 1, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ids_dict['profiles_1d']['zeff'] = np.where(ids_dict['profiles_1d']['zeff'] > 1, ids_dict['profiles_1d']['zeff'], 1.02)
@@ -1974,21 +1976,18 @@ def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None):
+def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     time = ids_dict['time']['core_profiles']
@@ -2000,21 +1999,18 @@ def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = Non
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     time_eq = ids_dict['time']['equilibrium']
@@ -2077,21 +2073,18 @@ def set_hyperbole_zeff(db, shot, run, run_target, zeff_param = 0, zeff_max = 3, 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ip = ids_dict['traces']['global_quantities.ip']
@@ -2129,21 +2122,18 @@ def set_ip_ne_scaled_zeff(db, shot, run, run_target, db_target = None, shot_targ
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ip = ids_dict['traces']['global_quantities.ip']
@@ -2173,21 +2163,18 @@ def set_linear_descending_zeff(db, shot, run, run_target, db_target = None, shot
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False):
+def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, backend = None):
 
-    if not username:
-        username=getpass.getuser()
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
-    if not username_target:
-        username_target = username
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ip = ids_dict['traces']['global_quantities.ip']
@@ -2237,23 +2224,23 @@ def set_impurity_composition_from_flattop(db, shot, run, run_target, db_target =
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def identify_flattop(db, shot, run, verbose = False):
+def identify_flattop(db, shot, run, verbose = False, username = None, backend = None):
 
     '''
 
     Automatically identifies the flattop. Not very robust but should work for setting Zeff correctly
 
     '''
+    if not username: username=getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
 
-    username = getpass.getuser()
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
+    summary = open_and_get_ids(db, shot, run, 'summary', username = username, backend = backend)
 
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
-    summary = open_and_get_ids(db, shot, run, 'summary', username = username)
-
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     if verbose:
@@ -2384,49 +2371,60 @@ def identify_flattop_ip(ip, time):
     return(index_flattop_begin, index_flattop_end)
 
 
-def check_ion_number(db, shot, run):
+def check_ion_number(db, shot, run, username = None, backend = None):
 
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+    if not username: username=getpass.getuser()
+    if not backend: backend = get_backend(db, shot, run)
+
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', backend = backend)
     ion_number = len(core_profiles.profiles_1d[0].ion)
 
     return(ion_number)
 
 # ------------------------------- Q PROFILE MANIPULATION ---------------------------------
 
-def flip_q_profile(db, shot, run, run_target, username = ''):
+def flip_q_profile(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
     '''
 
     Writes a new ids with the opposite sign of the q profile
 
     '''
-    if username == '':
-        username = getpass.getuser()
 
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
 
     for index, profile_1d in enumerate(core_profiles.profiles_1d):
         core_profiles.profiles_1d[index].q = -core_profiles.profiles_1d[index].q
 
-    copy_ids_entry(username, db, shot, run, shot, run_target)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run_target, user_name=username)
+    data_entry_target = imas.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
     data_entry_target.close()
 
-def use_flat_q_profile(db, shot, run, run_target, username = ''):
+def use_flat_q_profile(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
     '''
 
     Writes a new ids with a flat q profile
 
     '''
-    if username == '':
-        username = getpass.getuser()
 
-    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username)
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
     q = []
 
     len_time = len(core_profiles.time)
@@ -2438,15 +2436,16 @@ def use_flat_q_profile(db, shot, run, run_target, username = ''):
     for index, q_slice in enumerate(q):
         core_profiles.profiles_1d[index].q = q_slice
 
-    copy_ids_entry(username, db, shot, run, shot, run_target)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run_target, user_name=username)
+    data_entry_target = imas.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
     data_entry_target.close()
 
-def use_flat_vloop(db, shot, run_relaxed, run_target, username = ''):
+
+def use_flat_vloop(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
     '''
 
@@ -2455,38 +2454,51 @@ def use_flat_vloop(db, shot, run_relaxed, run_target, username = ''):
 
     '''
 
-    if username == '':
-        username = getpass.getuser()
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    core_profiles = open_and_get_ids(db, shot, run_relaxed, 'core_profiles', username = username)
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
     q_slice = core_profiles.profiles_1d[-1].q
 
     for index, q_slice in enumerate(q):
         core_profiles.profiles_1d[index] = q_slice
 
-    copy_ids_entry(username, db, shot, run_relaxed, shot_target, run_target)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot, run_target, user_name=username)
+    data_entry_target = imas.DBEntry(backend, db, shot, run_target, user_name=username)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
     data_entry_target.close()
 
 
-def check_and_flip_ip(db, shot, run, shot_target, run_target):
+def check_and_flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
-    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username)
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username, backend = backend)
     if equilibrium.time_slice[0].global_quantities.ip > 0:
-        flip_ip(db, shot, run, shot_target, run_target)
+        flip_ip(db, shot, run, shot_target, run_target, backend = backend)
 
         print('ip was positive for shot ' + str(shot) + ' and was flipped to negative')
 
-def flip_ip(db, shot, run, shot_target, run_target):
+def flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
-    username = getpass.getuser()
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
 
-    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username)
-    copy_ids_entry(username, db, shot, run, shot_target, run_target)
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
     equilibrium_new = copy.deepcopy(equilibrium)
 
@@ -2495,7 +2507,7 @@ def flip_ip(db, shot, run, shot_target, run_target):
 
     equilibrium_new.vacuum_toroidal_field.b0 = -equilibrium.vacuum_toroidal_field.b0
 
-    data_entry_target = imas.DBEntry(imasdef.MDSPLUS_BACKEND, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     equilibrium_new.put(db_entry = data_entry_target)
@@ -2503,7 +2515,7 @@ def flip_ip(db, shot, run, shot_target, run_target):
 
 # ------------------------------- KINETIC PROFILES MANIPULATION ---------------------------------
 
-def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
+def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
     '''
 
@@ -2515,8 +2527,9 @@ def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = 
     if not username_target: username_target = username
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
@@ -2530,11 +2543,11 @@ def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     print('temperature_peaked')
 
-def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, verbose = False):
+def correct_boundaries_te(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, verbose = False, backend = None):
 
     '''
 
@@ -2544,10 +2557,13 @@ def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, use
 
     '''
 
-    if not username:
-        username=getpass.getuser()
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = username
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
@@ -2582,7 +2598,7 @@ def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, use
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     if verbose and index_modified:
         fig, axs = plt.subplots(1,1)
@@ -2596,7 +2612,7 @@ def correct_boundaries_te(db, shot, run, db_target, shot_target, run_target, use
 
 #def set_boundaries(db, shot, run, run_target, te_sep, ti_sep = None, method_te = 'constant', method_ti = None, bound_te_up = False, bound_te_down = False, db_target = None, shot_target = None, username = None):
 
-def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, db_target = None, shot_target = None, username = None):
+def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, db_target = None, shot_target = None, username = None, backend = None):
 
     '''
 
@@ -2609,9 +2625,10 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     if not username: username = getpass.getuser()
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
     #if not ti_sep: ti_sep = te_sep
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
@@ -2883,12 +2900,12 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     print('Set boundaries completed')
 
 
-def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_target = None,  username = None, username_target = None, mult = 1):
+def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
     '''
 
@@ -2900,8 +2917,9 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
     if not username_target: username_target = username
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     equilibrium = open_and_get_ids(db, shot, run, 'equilibrium')
@@ -2967,10 +2985,10 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ratio_limit = 2):
+def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ratio_limit = 2, backend = None):
 
     '''
 
@@ -2981,8 +2999,9 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
     if not username_target: username_target = username
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     #ion_temperature_keys = ['ion[0].temperature', 'ion[0].pressure_thermal', 'ion[1].temperature', 'ion[1].pressure_thermal', 't_i_average']
@@ -2998,10 +3017,10 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1):
+def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
     '''
 
@@ -3013,8 +3032,9 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     if not username_target: username_target = username
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     if profile_tag == 'te':
@@ -3061,9 +3081,9 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
-def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = []):
+def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = [], backend = None):
 
     '''
 
@@ -3073,16 +3093,13 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
 
     '''
 
-    if not username:
-        username = getpass.getuser()
-    if not username_target:
-        username_target = username
-    if not db_target:
-        db_target = db
-    if not shot_target:
-        shot_target = shot
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = username
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
-    ids_data = IntegratedModellingDict(db, shot, run, username = username)
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
     ne_peaking_0 = extra_early_options['ne peaking 0']
@@ -3359,7 +3376,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
 
-    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct)
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
 # -------------------------------- EXTRA TOOLS TO MAKE THE REST WORK -------------------------------------
@@ -3493,7 +3510,7 @@ def smooth(x,window_len=7,window='hanning'):
 
     return y[int(window_len/2+1):-int(window_len/2-1)]
 
-def copy_ids_entry(username, db, shot, run, shot_target, run_target, ids_list = [], backend = 'mdsplus'):
+def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ids_list = [], backend = None):
 
     '''
 
@@ -3501,12 +3518,15 @@ def copy_ids_entry(username, db, shot, run, shot_target, run_target, ids_list = 
 
     '''
 
-    if username == '':
-        username = getpass.getuser()
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = username
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
 
     # open input pulsefile and create output one
 
-# path hardcoded for now, not ideal but avoids me to insert the version everytime. Might improve later
+    # path hardcoded for now, not ideal but avoids me to insert the version everytime. Might improve later
     path = '/gw/swimas/core/installer/src/3.34.0/ual/4.9.3/xml/IDSDef.xml'
     parser = Parser()
     xml.sax.parse(path, parser)
@@ -3517,44 +3537,38 @@ def copy_ids_entry(username, db, shot, run, shot_target, run_target, ids_list = 
     ual_version = version.parse(".".join(vsplit[5:]))
 
     print('Opening', username, db, imas_version, shot, run)
+
+    idss_in = imas.DBEntry(backend, db, shot, run, user_name=username)
     idss_in = imas.ids(shot, run)
-    op = idss_in.open_env(username, db, imas_major_version)
+    op = idss_in.open_env_backend(username, db, imas_major_version, backend)
 
     if op[0]<0:
         print('The entry you are trying to copy does not exist')
         exit()
 
-    print('Creating', username, db, imas_version, shot_target, run_target)
-    idss_out = imas.ids(shot_target, run_target)
-    idss_out.create_env(username, db, imas_major_version)
-    if backend == 'mdsplus':
-        idss_out = imas.DBEntry(imasdef.MDSPLUS_BACKEND, 'tcv', shot_target, run_target)
-    if backend == 'hdf5':
-        idss_out = imas.DBEntry(imasdef.HDF5_BACKEND, 'tcv', shot_target, run_target)
+    print('Creating', username_target, db, imas_version, shot_target, run_target)
+
+    #idss_out = imas.ids(shot_target, run_target)
+    #idss_out.create_env_backend(username_target, db_target, imas_major_version, backend)
+
+    idss_out = imas.DBEntry(backend, db_target, shot_target, run_target)
     idx = idss_out.create()[1]
-    #idx = idss_out.expIdx
-    #ids_list = None
-    # read/write every IDS
 
     for ids_info in parser.idss:
         name = ids_info['name']
         maxoccur = int(ids_info['maxoccur'])
         if ids_list and name not in ids_list:
             continue
-        if name == 'ec_launchers' or name == 'numerics' or name == 'sdn':
-#        if name == 'ec_launchers' or name == 'numerics' or name == 'sdn' or name == 'nbi':    # test for nbi ids, temporary
+        if name == 'ec_launchers':
+            #print('continue on ec launchers')  # Temporarily down due to a malfunctioning of ec_launchers ids
             continue
-            print('continue on ec launchers')  # Temporarily down due to a malfunctioning of ec_launchers ids
-            print('skipping numerics')  # Not in the newest version of IMAS
+        #if name in idss_in.__dict__:
         for i in range(maxoccur + 1):
             if not i:
                 print('Processing', ids_info['name'])
-#            if i:
-#                print('Processing', ids_info['name'], i)
-#            else:
-#                print('Processing', ids_info['name'])
 
             ids = idss_in.__dict__[name]
+
             stdout = sys.stdout
             sys.stdout = open('/afs/eufus.eu/user/g/g2mmarin/warnings_imas.txt', 'w') # suppress warnings
             ids.get(i)
@@ -3565,7 +3579,7 @@ def copy_ids_entry(username, db, shot, run, shot_target, run_target, ids_list = 
             sys.stdout = stdout
 
     idss_in.close()
-    idss_out.close()
+    #idss_out.close()
 
 # -------------------------------- LISTS OF KEYS -------------------------------------
 
