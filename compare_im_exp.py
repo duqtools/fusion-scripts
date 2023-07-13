@@ -538,7 +538,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
 
     return error_time, error_time_space_all
 
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False):
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False):
 
     """
     Plots experimental data and model predictions, and calculates errors.
@@ -563,8 +563,10 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
     variable_names = get_variable_names_exp(signals)
 
-    core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp)
-    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model, show_fit = show_fit)
+    if not username: username = getpass.getuser()
+
+    core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp, username = username)
+    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model, show_fit = show_fit, username = username)
 
     t_cxrs = get_t_cxrs(core_profiles_exp)
     t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
@@ -575,44 +577,113 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
     for variable in all_exp_data:
 
-        exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
+        if time_begin > time_end:
+            errors[variable] = 0.0
+            errors_time[variable] = [0.0]
 
-        fit = get_onesig(core_profiles_model,variable_names[variable][2],time_begin,time_end=time_end)
-        time_vector_fit = np.asarray(list(fit.keys()))
+        else:
+            exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
 
-        # For every timelisce in experiments, remap all the fits on that x and then interpolate. It is necessary if the x coordinate changes in time
-        ytable_final = generate_ytable(time_vector_exp, time_vector_fit, fit, exp_data, fit_and_substitute, variable)
-        ytable_final = scale_model_data(ytable_final, variable)
+            fit = get_onesig(core_profiles_model,variable_names[variable][2],time_begin,time_end=time_end)
+            time_vector_fit = np.asarray(list(fit.keys()))
 
-        # Plotting routines
-        if verbose:
-            plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                                title_fontsize, label_fontsize, show_fit = show_fit)
-        error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = show_fit)
+            # For every timelisce in experiments, remap all the fits on that x and then interpolate. It is necessary if the x coordinate changes in time
+            ytable_final = generate_ytable(time_vector_exp, time_vector_fit, fit, exp_data, fit_and_substitute, variable)
+            ytable_final = scale_model_data(ytable_final, variable)
 
-        error_variable = sum(error_time)/len(exp_data)
-        errors[variable] = error_variable
-        errors_time[variable] = error_time
+            # Plotting routines
+            if verbose:
+                plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
+                                    title_fontsize, label_fontsize, show_fit = show_fit)
 
-        print('The error for ' + variable + ' is ' + str(error_variable))
+            error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, 
+                                                      label, fit_or_model, verbose, show_fit = show_fit)
+
+            error_variable = sum(error_time)/len(exp_data)
+            errors[variable] = error_variable
+            errors_time[variable] = error_time
+
+        print('The error for ' + variable + ' is ' + str(errors[variable]))
 
     return(errors, errors_time)
 
 
-def open_and_get_ids(db, shot, ids_name, run=None, username=None, backend='mdsplus', show_fit = False):
-    if not username:
-        username = getpass.getuser()
+def get_username_ids_style(run_output, username = None):
+
+    if not username: username = os.getenv("USER")
+    if type(run_output) == str or isinstance(run_output, np.str_):
+        username = '/pfs/work/' + username + '/jetto/runs/' + run_output + '/imasdb'
+
+    return username
+
+
+def extract_summary(db, shot, run_output):
+
+    username = get_username_ids_style(run_output)
+    if type(run_output) == int or isinstance(run_output, np.integer):
+        summary = open_and_get_ids(db, shot, 'summary', run_output)
+    elif type(run_output) == str or isinstance(run_output, np.str_):
+        summary = open_and_get_ids(db, shot, 'summary', 2, username = username)
+    else:
+        print('Output run not reconized. Aborting')
+        exit()
+
+    return summary
+
+
+def get_time_begin_and_end(db, shot, run_output, time_begin, time_end):
+
+    summary = extract_summary(db, shot, run_output)
+
+    # Exclude very fast equilibrium readjusting on the first few timesteps
+    if not time_begin:
+        time_begin = min(summary.time) + 0.01
+    if not time_end:
+        time_end = max(summary.time)
+
+    return time_begin, time_end
+
+
+def get_backend(db, shot, run, username=None):
+
+    if not username: username = getpass.getuser()
+
+    imas_backend = imasdef.HDF5_BACKEND
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+
+    op = data_entry.open()
+    if op[0]<0:
+        imas_backend = imasdef.MDSPLUS_BACKEND
+
+    data_entry.close()
+
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    op = data_entry.open()
+    if op[0]<0:
+        print('Input does not exist. Aborting generation')
+
+    data_entry.close()
+
+    return imas_backend
+
+
+def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_fit = False):
+
+    if not username: username = getpass.getuser()
+
+    # deal with numpy strings to have the code below work properly
+    if isinstance(run, np.str_): run = str(run)
+    if isinstance(run, np.integer): run = int(run)
 
     if type(run) is str:
-        user_name = f"/pfs/work/{username}/jetto/runs/{run}/imasdb/"
-    else:
-        user_name = username
+        username = f"/pfs/work/{username}/jetto/runs/{run}/imasdb/"
 
-    imas_backend = imasdef.MDSPLUS_BACKEND if backend == 'mdsplus' else imasdef.HDF5_BACKEND
     if show_fit:
-        data_entry = imas.DBEntry(imas_backend, db, shot, 1 if type(run) is str else run, user_name=user_name)
+        if not backend: backend = get_backend(db, shot, 1 if type(run) is str else run, username=username)
+        data_entry = imas.DBEntry(backend, db, shot, 1 if type(run) is str else run, user_name=username)
     else:
-        data_entry = imas.DBEntry(imas_backend, db, shot, 2 if type(run) is str else run, user_name=user_name)
+        if not backend: backend = get_backend(db, shot, 2 if type(run) is str else run, username=username)
+        data_entry = imas.DBEntry(backend, db, shot, 2 if type(run) is str else run, user_name=username)
 
     op = data_entry.open()
 
