@@ -28,45 +28,79 @@ plot_errors('/afs/eufus.eu/user/g/user/mylist.txt', ['summary.global_quantities.
 
 exp_signal_list = ['te', 'ne', 'ti', 'ni']
 
+def get_label_variable(variable):
+    """
+    Get the label variable string for a given variable.
+    """
+    if variable == 'te':
+        return r'$T_e$'
+    elif variable == 'ne':
+        return r'$n_e$'
+    elif variable == 'ti':
+        return r'$T_i$'
+    elif variable == 'ni':
+        return r'$n_C$'
+    elif variable == 'summary.global_quantities.v_loop.value':
+        return r'$V_{loop}$'
+    elif variable == 'summary.global_quantities.li.value':
+        return r'$li_{3}$'
+
+    else:
+        return variable
+
+
+def get_measure_variable(variable):
+    """
+    Get the label variable string for a given variable.
+    """
+    if variable == 'te':
+        return r'[-]'
+    elif variable == 'ne':
+        return r'[-]'
+    elif variable == 'ti':
+        return r'[-]'
+    elif variable == 'ni':
+        return r'[-]'
+    elif variable == 'summary.global_quantities.v_loop.value':
+        return r'[V]'
+    elif variable == 'summary.global_quantities.li.value':
+        return r'[-]'
+
+    else:
+        return variable
+
+
 def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
 
-    # The time compared is the time of the simulation. Still on the experiment time array
-    summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
+    time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
 
     username = os.getenv("USER")
-    userlist = [username]
-    dblist = [db]
-    shotlist = [shot]
-    runlist = [run_input,run_output]
-    # Exclude very fast equilibrium readjusting on the first few timesteps
-    if not time_begin:
-        time_begin = min(summary.time) + 0.01
-    if not time_end:
-        time_end = max(summary.time)
-    signal = [signal]
+
+    idslist = generate_ids_list(username, db, shot, run_input, [run_output], show_fit = False)
+    signals = [signal]
     show_plot = False
 
-    time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signal, dblist, shotlist, runlist, time_begin, userlist = userlist, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None)
+    if time_begin > time_end:
+        print('Warning! One run did not finish properly. Substituting 0 as error')
+        errors = [0.0]
+    else:
+        time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signals, idslist, time_begin, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None)
 
-    errors = []
-    for signal in time_error_averages:
-        for run_tag in time_error_averages[signal]:
-            errors.append(time_error_averages[signal][run_tag])
+        errors = []
+        for signal in time_error_averages:
+            for run_tag in time_error_averages[signal]:
+                errors.append(time_error_averages[signal][run_tag])
 
-    for signal in profile_error_averages:
-        for run_tag in profile_error_averages[signal]:
-            errors.append(profile_error_averages[signal][run_tag])
+        for signal in profile_error_averages:
+            for run_tag in profile_error_averages[signal]:
+                errors.append(profile_error_averages[signal][run_tag])
 
     return errors
 
 
 def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False):
 
-    summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
-    if not time_begin:
-        time_begin = min(summary.time) + 0.01
-    if not time_end:
-        time_end = max(summary.time)
+    time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
 
     errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit)
 
@@ -312,9 +346,9 @@ def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False
     #The reference ids, which should be experimental data, goes first
     idslist = [f'{username}/{db}/{shot}/{run_exp}']
     for run in runs_output:
-        if type(run) is int:
+        if type(run) is int or isinstance(run, np.integer):
             ids = f'{username}/{db}/{shot}/{run}'
-        elif type(run) is str:
+        elif type(run) is str or isinstance(run, np.str_):
             ids = f'/pfs/work/{username}/jetto/runs/{run}/imasdb/{db}/{shot}/2'
         else:
             print('run of type ' + str(type(run)) + ' is not supported. Aborting')
@@ -322,7 +356,7 @@ def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False
         idslist.append(ids)
 
         # Might be useful to also show the agreement of the fit.
-        if show_fit and type(run) is str:
+        if show_fit and (type(run) is str or isinstance(run, np.str_)):
             ids = f'/pfs/work/{username}/jetto/runs/{run}/imasdb/{db}/{shot}/1'
             idslist.append(ids)
 
@@ -376,12 +410,14 @@ def plot_errors_traces(filename, signals, username = None, time_begin = None, ti
 
     plt.show()
 
-def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
+
+def get_input_run_lists(filename):
 
     file_runs = open(filename, 'r')
     lines = file_runs.readlines()
     shot_list, run_input_list, run_output_list, saw_file_paths = [], [], [], []
-    labels_plot = lines[0].split(' ')
+    labels_plot = lines[0][:-1].split(' ')
+
     for line in lines[1:]:
         shot, run_input, *runs_output = line.split(' ')
         shot_list.append(int(shot))
@@ -393,19 +429,36 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
         if not candidate_saw_path.is_file():
             num_run_series = len(runs_output)
             for run_output in runs_output:
-                run_output_list.append(int(run_output))
+                if run_output.isdigit():
+                    run_output_list.append(int(run_output))
+                else:
+                    run_output_list.append(run_output)
             # Maybe not a nice way to do it but keeps the structure later
             saw_file_paths.append(None)
         else:
             num_run_series = len(runs_output) - 1
             for run_output in runs_output[:-1]:
-                run_output_list.append(int(run_output))
+                if run_output.isdigit():
+                    run_output_list.append(int(run_output))
+                else:
+                    run_output_list.append(run_output)
             saw_file_paths.append(runs_output[-1][:-1])
 
     run_output_list = np.asarray(run_output_list).reshape(len(lines)-1, num_run_series)
 
+    return num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot
+
+
+def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
+
+    num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot = get_input_run_lists(filename)
+
     # Pre deciding the structure of the plots with the various possibilities of len(signal_list)
     fig, ax, num_columns = create_subplots(signal_list)
+    label_signals, measure_signals = {}, {}
+    for signal in signal_list:
+        label_signals[signal] = get_label_variable(signal)
+        measure_signals[signal] = get_measure_variable(signal)
 
     if plot_type == 1:
         for isignal, signal in enumerate(signal_list):
@@ -434,8 +487,8 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
                 ax[icolumns][iraws].set_ylabel('Error [-]')
             else:
-                ax[icolumns][iraws].set_ylabel('Distance')
-            ax[icolumns][iraws].set_title(signal)
+                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal])
+            ax[icolumns][iraws].set_title(label_signals[signal])
             ax[icolumns][iraws].set_xticks(x, labels)
             ax[icolumns][iraws].legend()
 
@@ -455,7 +508,9 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             for shot in range(len(shot_list)):
                 errors = []
                 for run_output in run_output_list[shot,:]:
-                    if signal not in exp_signal_list:
+                    if signal == 'sawteeth':
+                        errors.append(get_sawteeth_error(shot_list[shot], run_output, saw_file_paths[shot], time_begin = time_begin, time_end = time_end))
+                    elif signal not in exp_signal_list:
                         errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end)[0])
                     else:
                         errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end)[0])
@@ -466,8 +521,8 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
                 ax[icolumns][iraws].set_ylabel('Error [-]')
             else:
-                ax[icolumns][iraws].set_ylabel('Distance')
-            ax[icolumns][iraws].set_title(signal)
+                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal])
+            ax[icolumns][iraws].set_title(label_signals[signal])
             ax[icolumns][iraws].set_xticks(x, labels_plot)
             ax[icolumns][iraws].legend()
 
@@ -477,24 +532,9 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
 
 
 if __name__ == "__main__":
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runs_list_show.txt', ['summary.global_quantities.v_loop.value', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 1)
+    plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper2.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 2)
+
     #plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
-    #plot_errors_time('runlist_test.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
     #plot_errors_traces('runlist_test.txt', ['summary.global_quantities.v_loop.value', 'summary.global_quantities.ip.value'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
-    #plot_errors_traces('runlist_paper1.txt', ['vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.04, time_end = 0.3, show_fit = True)
-    #print('for scripting directly')
-    #plot_all_traces('runlist_test.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
-
-    #plot_all_traces('runlist_paper1.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3, show_fit = False)
-    #plot_all_traces('runlist_paper1.txt', ['ne', 'te', 'ti', 'ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-
-    #plot_all_traces('runlist_paper1.txt', ['ne'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    #plot_all_traces('runlist_paper1.txt', ['te'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    #plot_all_traces('runlist_paper1.txt', ['ti'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    plot_all_traces('runlist_paper1.txt', ['ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-
-
-
-
 
 
