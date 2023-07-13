@@ -206,8 +206,9 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     return args
 
 
-def getShotFile(ids_name, shot, runid, user, database, backend=imas.imasdef.MDSPLUS_BACKEND):
-    print('to be opened', user, database, shot, runid)
+def getShotFile(ids_name, shot, runid, user, database, backend=None):
+    if not backend: backend = get_backend(database, shot, runid, username=user)
+    print('to be opened', user, database, shot, runid, backend)
     data = None
     ids = imas.DBEntry(backend, database, shot, runid, user_name=user)
     ids.open()
@@ -216,7 +217,33 @@ def getShotFile(ids_name, shot, runid, user, database, backend=imas.imasdef.MDSP
         data = ids.get(ids_name)
     else:
         raise TypeError('IDS given is not implemented yet')
+    ids.close()
+
     return data
+
+
+def get_backend(db, shot, run, username=None):
+
+    if not username: username = getpass.getuser()
+
+    imas_backend = imas.imasdef.HDF5_BACKEND
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+
+    op = data_entry.open()
+    if op[0]<0:
+        imas_backend = imas.imasdef.MDSPLUS_BACKEND
+
+    data_entry.close()
+
+    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    op = data_entry.open()
+    if op[0]<0:
+        print('Input does not exist. Aborting generation')
+
+    data_entry.close()
+
+    return imas_backend
+
 
 def extend_list(inlist, nmax, default=None):
     outlist = inlist
