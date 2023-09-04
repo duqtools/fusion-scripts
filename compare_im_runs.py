@@ -182,25 +182,25 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     epilog="", 
     formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument("--backend",  "-b",              type=str,   default="mdsplus", choices=["mdsplus", "hdf5"], help="Backend with which to access data")
-    parser.add_argument("--ids",      "-i",   nargs='+', type=str,   default=None,                                   help="IDS identifiers in which data is stored")
-    parser.add_argument("--version",  "-v",              type=str,   default="3",                                    help="UAL version")
-    parser.add_argument("--time_begin",                  type=float, default=None,                                   help="Slice shot file beginning at time (s)")
-    parser.add_argument("--time_end",                    type=float, default=None,                                   help="Slice shot file ending at time (s)")
-    parser.add_argument("--time_out",         nargs='*', type=float, default=None,                                   help="Slice output interpolated to times (s), automatically toggles uniform")
-    parser.add_argument("--signal",   "-sig", nargs='+', type=str,   default=None,                                   help="Full IDS signal names to be compared")
-#    parser.add_argument("--source",           nargs='*', type=str,   default=['total'],                              help="sourceid to be plotted(nbi, ec,etc as given in dd description), make sence if core_source is given as target ids, default is total")
-#    parser.add_argument("--transport",        nargs='*', type=str,   default=['transport_solver'],                   help="transpid to be plotted(neoclassical, anomalous, ets, cherck dd for more entires), make sence if core_transport is given as target ids, default is transport_solver")
-    parser.add_argument("--steady_state",                            default=False, action='store_true',             help="Flag to identify that the input is a single point")
-    parser.add_argument("--save_plot",                               default=False, action='store_true',             help="Toggle saving of plot into default file names")
-    parser.add_argument("--uniform",                                 default=False, action='store_true',             help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
-#    parser.add_argument("--analyze_traces",   nargs='*', type=str,   default=None, choices=["absolute_error"],       help="Define which analyses to perform after time trace comparison plots")
-#    parser.add_argument("--analyze_profiles", nargs='*', type=str,   default=None, choices=["average_absolute_error"], help="Define which analyses to perform after profile comparison plots")
-    parser.add_argument("--analyze",                                 default=False, action='store_true',             help="Toggle extra analysis routines, automatically toggles uniform")
-    parser.add_argument("--correct_sign",                            default=None, action='store_true',              help="Allows to change the sign of the output if it is not identical to reference run")
-    parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                   help="Specify functions of multiple variables")
-    parser.add_argument("--calc_only",                               default=False, action='store_true',             help="Toggle off all plotting")
-
+    parser.add_argument("--backend",  "-b",              type=str,   default="mdsplus", choices=["mdsplus", "hdf5"],       help="Backend with which to access data")
+    parser.add_argument("--ids",      "-i",   nargs='+', type=str,   default=None,                                         help="IDS identifiers in which data is stored")
+    parser.add_argument("--version",  "-v",              type=str,   default="3",                                          help="UAL version")
+    parser.add_argument("--time_begin",                  type=float, default=None,                                         help="Slice shot file beginning at time (s)")
+    parser.add_argument("--time_end",                    type=float, default=None,                                         help="Slice shot file ending at time (s)")
+    parser.add_argument("--time_out",         nargs='*', type=float, default=None,                                         help="Slice output interpolated to times (s), automatically toggles uniform")
+    parser.add_argument("--signal",   "-sig", nargs='+', type=str,   default=None,                                         help="Full IDS signal names to be compared")
+#    parser.add_argument("--source",           nargs='*', type=str,   default=['total'],                                    help="sourceid to be plotted(nbi, ec,etc as given in dd description), make sence if core_source is given as target ids, default is total")
+#    parser.add_argument("--transport",        nargs='*', type=str,   default=['transport_solver'],                         help="transpid to be plotted(neoclassical, anomalous, ets, cherck dd for more entires), make sence if core_transport is given as target ids, default is transport_solver")
+    parser.add_argument("--steady_state",                            default=False, action='store_true',                   help="Flag to identify that the input is a single point")
+    parser.add_argument("--save_plot",                               default=False, action='store_true',                   help="Toggle saving of plot into default file names")
+    parser.add_argument("--uniform",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+#    parser.add_argument("--analyze_traces",   nargs='*', type=str,   default=None, choices=["absolute_error"],             help="Define which analyses to perform after time trace comparison plots")
+#    parser.add_argument("--analyze_profiles", nargs='*', type=str,   default=None, choices=["average_absolute_error"],     help="Define which analyses to perform after profile comparison plots")
+    parser.add_argument("--analyze",                                 default=False, action='store_true',                   help="Toggle extra analysis routines, automatically toggles uniform")
+    parser.add_argument("--error_type",                   type=str,  default="absolute", choices=["absolute", "relative"], help="Switches between absolute and relative error")
+    parser.add_argument("--correct_sign",                            default=None, action='store_true',                    help="Allows to change the sign of the output if it is not identical to reference run")
+    parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                         help="Specify functions of multiple variables")
+    parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
     args=parser.parse_args()
 
     return args
@@ -287,13 +287,40 @@ def get_label_variable(variable):
     """
     Get the label variable string for a given variable.
     """
-    if variable == 'summary.global_quantities.li.value':
-        return r'$l_{i3}$ [-]'
-    elif variable == 'summary.global_quantities.energy_diamagnetic.value':
-        return r'$W_{dia}$ $[J]$'
 
+    ylabel = None
+
+    if 'summary.global_quantities.li.value' in variable:
+        ylabel = [r'$l_{i3}$ ','[-]']
+    elif 'summary.global_quantities.energy_diamagnetic.value' in variable:
+        ylabel = [r'$W_{dia}$ ','[J]']
+    elif 'summary.global_quantities.v_loop.value' in variable:
+        ylabel = [r'$V_{loop}$ ','[V]']
+
+    elif 'core_profiles.profiles_1d[].electrons.density' in variable:
+        ylabel = [r'$n_{e}$ ','[$m^{-3}$]']
+    elif 'core_profiles.profiles_1d[].q' in variable:
+        ylabel = [r'$q$ ','[-]']
+    elif 'core_profiles.profiles_1d[].electrons.temperature' in variable:
+        ylabel = [r'$T_{e}$ ','[eV]']
+    elif 'core_profiles.profiles_1d[].ion[0].temperature' in variable:
+        ylabel = [r'$T_{i}$ ','[eV]']
+
+    if ylabel:
+        if 'absolute_error' in variable:
+            ylabel[0] = ylabel[0] + 'Absolute error '
+
+        elif 'relative_error' in variable:
+            ylabel[0] = ylabel[0] + 'Relative error '
+            ylabel[1] = '[-]'
+
+        return ylabel[0] + ylabel[1]
     else:
         return variable
+
+
+fontsize_labels = 14
+legend_location_gifs = 'upper right' #Keeping the legend in the same place for the gifs
 
 
 def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
@@ -514,7 +541,6 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
             fig = plt.figure()
             ax = fig.add_subplot(111)
             for run in pdata:
-                print(run)
                 xdata = pdata[run]["time"]
                 ydata = pdata[run]["data"]
                 linestyle = '-'
@@ -525,21 +551,47 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
                     linestyle = '--'
                     linecolor = 'k'
 
-                if len(pdata) == 2 and (first_run != run):
-                    run_label = 'Integrated modelling prediction'
-                elif first_run == run:
-                    run_label = 'Experimental measurement'
-
-                if len(pdata) != 2:
-                    run_label = run
-                
+                run_label = create_run_label(pdata, run, first_run)
                 ax.plot(xdata, ydata, label=run_label, c=linecolor, ls=linestyle)
-            ax.set_xlabel("time [s]")
-            ax.set_ylabel(get_label_variable(signame))
+            ax.set_xlabel("time [s]", fontsize = fontsize_labels)
+            ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
             plt.close(fig)
+
+def create_run_label(pdata, run, first_run = False):
+
+    if len(pdata) == 2 and (first_run != run):
+        run_label = 'Integrated modelling prediction'
+    elif first_run == run:
+        run_label = 'Experimental measurement'
+
+    if ':' in list(pdata.keys())[0]:
+        run_label = isolate_run_name(run)
+
+    if len(pdata) != 2:
+        run_label = isolate_run_name(run)
+
+    return run_label
+
+def isolate_run_name(run):
+
+    run_label = run
+    pattern = r'(run.*?)'
+    # Search for the pattern in the input string
+    run_segments, run_contains = run.split('/'), []
+    for run_segment in run_segments:
+        run_with_runs = re.findall(pattern, run_segment)
+        if run_with_runs:
+            run_contains.append(run_segment)
+    if len(run_contains) == 0 or len(run_contains) == 1:
+        run_label = run
+    else:
+        run_label = run_contains[-1]
+
+    return run_label
+
 
 def plot_interpolated_traces(interpolated_data, plot_vars=None):
     signal_list = interpolated_data["time_signals"] if "time_signals" in interpolated_data else keys_list['time_trace']
@@ -550,11 +602,14 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
             print("Plotting %s" % (signame))
             fig = plt.figure()
             ax = fig.add_subplot(111)
+            if 'error' in signame:
+                next(ax._get_lines.prop_cycler)
 
             for run in interpolated_data[signame]:
-                ax.plot(interpolated_data[signame+".t"], interpolated_data[signame][run].flatten(), label=run)
-            ax.set_xlabel("time [s]")
-            ax.set_ylabel(get_label_variable(signame))
+                run_label = create_run_label(interpolated_data[signame], run)
+                ax.plot(interpolated_data[signame+".t"], interpolated_data[signame][run].flatten(), label=run_label)
+            ax.set_xlabel("time [s]", fontsize = fontsize_labels)
+            ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
             ax.legend(loc='best')
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
@@ -617,8 +672,8 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
             # lines_plotted = plt.plot([])
 
             ax = Figure.add_subplot(1, 1, 1)
-            ax.set_xlabel('rho_tor_norm')
-            ax.set_ylabel(get_label_variable(signame))
+            ax.set_xlabel(r'$\rho_{tor,norm}$', fontsize = fontsize_labels)
+            ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
             #ax.set_xlabel(r'$\rho$ [-]')
             #ax.set_ylabel(ylabel + ' ' + units)
             ymin = None
@@ -636,7 +691,7 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
                     ymax = np.nanmax([ymax, np.nanmax(pdata[run][tidx]["data"])]) if ymax is not None else np.nanmax(pdata[run][tidx]["data"])
                 plot_list[run] = pp[0]
 
-            ax.legend(loc='best')
+            ax.legend(loc=legend_location_gifs)
 
             # putting limits on x axis since it is a trigonometry function (0,2)
 
@@ -686,8 +741,8 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
             #    lines_plotted = plt.plot([])
 
             ax = Figure.add_subplot(1, 1, 1)
-            ax.set_xlabel('rho_tor_norm')
-            ax.set_ylabel(get_label_variable(signame))
+            ax.set_xlabel(r'$\rho_{tor,norm}$', fontsize = fontsize_labels)
+            ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
             #ax.set_xlabel(r'$\rho$ [-]')
             #ax.set_ylabel(ylabel + ' ' + units)
             ymin = None
@@ -695,13 +750,13 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
             plot_list = {}
 
             for run in interpolated_data[signame]:
-                pp = ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][0], label=run)
+                pp = ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][0], label=create_run_label(interpolated_data[signame], run))
                 for tidx in range(len(interpolated_data[signame+".t"])):
                     ymin = np.nanmin([ymin, np.nanmin(interpolated_data[signame][run][tidx])]) if ymin is not None else np.nanmin(interpolated_data[signame][run][tidx])
                     ymax = np.nanmax([ymax, np.nanmax(interpolated_data[signame][run][tidx])]) if ymax is not None else np.nanmax(interpolated_data[signame][run][tidx])
                 plot_list[run] = pp[0]
 
-            ax.legend(loc='best')
+            ax.legend(loc=legend_location_gifs)
 
             # putting limits on x axis since it is a trigonometry function (0,2)
 
@@ -731,6 +786,9 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
             display.display(html)
 
             plt.show()
+
+            f = r'animation_' + get_label_variable(signame) + r'.gif'
+            anim_created.save(f, writer='writergif')
 
             # good practice to close the plt object.
             plt.close()
@@ -793,7 +851,11 @@ def print_profile_errors(profile_error_dict, custom_vars=None):
 def absolute_error(data1, data2):
     return np.abs(data1 - data2)
 
-def compute_absolute_error_for_all_traces(analysis_dict):
+#Testing with relative errors
+def relative_error(data1, data2):
+    return np.abs(2*(data1 - data2)/(data1 + data2))
+
+def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
     out_dict = {}
     out_signal_list = []
     signal_list = analysis_dict["time_signals"] if "time_signals" in analysis_dict else keys_list['time_trace']
@@ -806,17 +868,29 @@ def compute_absolute_error_for_all_traces(analysis_dict):
                     first_run = run
                     first_data = analysis_dict[signame][first_run]
                 else:
-                    var = signame+".absolute_error"
+                    if error_type == 'absolute':
+                        var = signame+".absolute_error"
+                    elif error_type == 'relative':
+                        var = signame+".relative_error"
+                    else:
+                        print('Option for the error not recognized') #Should raise exception
+                        exit()
                     if var not in out_dict:
                         out_dict[var] = {}
-                    comp_data = absolute_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    if error_type == 'absolute':
+                        comp_data = absolute_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'relative':
+                        comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    else:
+                        print('Option for the error not recognized') #Should raise exception
+                        exit()
                     out_dict[var][run+":"+first_run] = comp_data.copy()
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
                     out_signal_list.append(var)
     out_dict["time_signals"] = out_signal_list
     return out_dict
 
-def compute_average_absolute_error_for_all_profiles(analysis_dict):
+def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute'):
     out_dict = {}
     out_signal_list = []
     signal_list = analysis_dict["profile_signals"] if "profile_signals" in analysis_dict else keys_list['profiles_1d']
@@ -829,10 +903,22 @@ def compute_average_absolute_error_for_all_profiles(analysis_dict):
                     first_run = run
                     first_data = analysis_dict[signame][first_run]
                 else:
-                    var = signame+".average_absolute_error"
+                    if error_type == 'absolute':
+                        var = signame+".average_absolute_error"
+                    elif error_type == 'relative':
+                        var = signame+".average_relative_error"
+                    else:
+                        print('Option for the error not recognized') #Should raise exception
+                        exit()
                     if var not in out_dict:
                         out_dict[var] = {}
-                    comp_data = absolute_error(analysis_dict[signame][run], first_data)
+                    if error_type == 'absolute':
+                        comp_data = absolute_error(analysis_dict[signame][run], first_data)
+                    elif error_type == 'relative':
+                        comp_data = relative_error(analysis_dict[signame][run], first_data)
+                    else:
+                        print('Option for the error not recognized') #Should raise exception
+
                     out_dict[var][run+":"+first_run] = np.average(comp_data, axis=1)
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
                     out_signal_list.append(var)
@@ -842,9 +928,11 @@ def compute_average_absolute_error_for_all_profiles(analysis_dict):
 def perform_time_trace_analysis(analysis_dict, **kwargs):
     out_dict = {}
     out_signal_list = []
-    absolute_error_flag = kwargs.pop("absolute_error", False)
-    if absolute_error_flag:
-        abs_err_dict = compute_absolute_error_for_all_traces(analysis_dict)
+    #absolute_error_flag = kwargs.pop("absolute_error", False)
+    error_flag = kwargs.pop("error", False)
+    error_type = kwargs.pop("error_type", 'absolute')
+    if error_flag:
+        abs_err_dict = compute_error_for_all_traces(analysis_dict, error_type = error_type)
         signal_list = abs_err_dict.pop("time_signals")
         out_dict.update(abs_err_dict)
         for signal in signal_list:
@@ -857,9 +945,11 @@ def perform_time_trace_analysis(analysis_dict, **kwargs):
 def perform_profile_analysis(analysis_dict, **kwargs):
     out_dict = {}
     out_signal_list = []
-    average_absolute_error_flag = kwargs.pop("average_absolute_error", False)
-    if average_absolute_error_flag:
-        avg_abs_err_dict = compute_average_absolute_error_for_all_profiles(analysis_dict)
+    #average_absolute_error_flag = kwargs.pop("average_absolute_error", False)
+    average_error_flag = kwargs.pop("average_error", False)
+    error_type = kwargs.pop("error_type", 'absolute')
+    if average_error_flag:
+        avg_abs_err_dict = compute_average_error_for_all_profiles(analysis_dict, error_type = error_type)
         signal_list = avg_abs_err_dict.pop("profile_signals")
         out_dict.update(avg_abs_err_dict)
         for signal in signal_list:
@@ -1172,7 +1262,7 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
 
 ####### SCRIPT #######
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1193,13 +1283,13 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
 
     if analyze:
 
-        options = {"absolute_error": True}
+        options = {"error": True, "error_type": error_type}
         time_error_dict = perform_time_trace_analysis(data_dict, **options)
 
         if plot:
             plot_interpolated_traces(time_error_dict)
 
-        options = {"average_absolute_error": True}
+        options = {"average_error": True, "error_type": error_type}
         profile_error_dict = perform_profile_analysis(data_dict, **options)
 
         if plot:
@@ -1226,6 +1316,7 @@ def main():
 #        transportlist=args.transport,
         plot=do_plot,
         analyze=args.analyze,
+        error_type=args.error_type,
         correct_sign=args.correct_sign,
         steady_state=args.steady_state,
         uniform=args.uniform,
