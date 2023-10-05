@@ -167,6 +167,8 @@ class IntegratedModellingRuns:
         force_run = False,
         force_input_overwrite = False,
         density_feedback = False,
+        set_sep_boundaries = False,
+        boundary_conditions = {},
         setup_time_polygon_flag = False,
         change_impurity_puff_flag = False,
         setup_time_polygon_impurities_flag = False,
@@ -195,6 +197,8 @@ class IntegratedModellingRuns:
         self.force_run = force_run
         self.force_input_overwrite = force_input_overwrite
         self.density_feedback = density_feedback
+        self.set_sep_boundaries = set_sep_boundaries
+        self.boundary_conditions = boundary_conditions
         self.setup_time_polygon_flag = setup_time_polygon_flag
         self.change_impurity_puff_flag = change_impurity_puff_flag
         self.setup_time_polygon_impurities_flag = setup_time_polygon_impurities_flag
@@ -454,6 +458,10 @@ class IntegratedModellingRuns:
     
         if self.density_feedback == True:
             self.setup_feedback_on_density()
+
+        if self.set_sep_boundaries:
+            setup_boundary_values()
+
 
         self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, abs(b0), r0)
         #self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, b0, r0)
@@ -841,6 +849,20 @@ class IntegratedModellingRuns:
         config.processors = processors
         config.walltime = walltime
 
+
+    def get_boundary_values_quantities(self):
+
+        if not self.boundary_conditions:
+            # Saves the boundary conditions in lists
+            core_profiles = open_and_get_ids(self.db, self.shot, self.run_start, 'core_profiles')
+            for profile_1d in core_profiles.profiles_1d:
+                self.boundary_conditions['te'].append(profile_1d.electrons.temperature[-1])
+                self.boundary_conditions['ti'].append(profile_1d.ions[0].temperature[-1])
+                self.boundary_conditions['ne'].append(profile_1d.electrons.density[-1])
+
+            self.self.boundary_conditions['times'] = core_profiles.time.tolist()
+
+
     def get_feedback_on_density_quantities(self):
 
         # Could add a check if run_exp exists. Should become the runinput though...
@@ -849,11 +871,32 @@ class IntegratedModellingRuns:
         #self.summary_time = summary.time
         #self.line_ave_density = summary.line_average.n_e.value
 
-        print(self.db, self.shot, self.run_start)
-
         pulse_schedule = open_and_get_ids(self.db, self.shot, self.run_start, 'pulse_schedule')
         self.dens_feedback_time = pulse_schedule.time
         self.line_ave_density = pulse_schedule.density_control.n_e_line.reference.data
+
+    def setup_boundary_values(self):
+
+        get_boundary_values_quantities()
+        setup_boundary_values_jset()
+        setup_boundary_values_jetto_in()
+
+
+    def setup_boundary_values_jetto_in(self):
+
+        modify_jettoin_line(self.run_start, '  NTEB', len(self.bc_te))
+        modify_jettoin_line(self.run_start, '  NTIB', len(self.bc_ti))
+        modify_jettoin_line(self.run_start, '  NDNHB1', len(self.bc_ne))
+
+        modify_jettoin_line(self.run_start, '  TEB', self.bc_te)
+        modify_jettoin_line(self.run_start, '  TIB', self.bc_ti)
+        modify_jettoin_line(self.run_start, '  DNHB1', self.bc_ne)
+
+        modify_jettoin_line(self.run_start, '  TTEB', self.bc_te_times)
+        modify_jettoin_line(self.run_start, '  TTIB', self.bc_ti_times)
+        modify_jettoin_line(self.run_start, '  TDNHB1', self.bc_ne_times)
+
+        modify_jettoin_line(self.run_start, '  BCINTRHON', '\n')
 
 
     def setup_feedback_on_density(self):
@@ -899,6 +942,21 @@ class IntegratedModellingRuns:
         shutil.copyfile(self.path_baserun + 'tmp' + '/jetto.jset', self.path_baserun + '/jetto.jset')
         shutil.rmtree(self.path_baserun + 'tmp')
         '''
+
+    def setup_boundary_values_jset(self):
+
+        run_name = self.run_start
+        times, bc_te, bc_ti, bc_ne = get_boundary_values_quantities()
+
+        panel_name = 'BoundCondPanel.eleTemp'
+        modify_jset_time_list(run_name, panel_name, times, bc_te)
+
+        panel_name = 'BoundCondPanel.ionTemp'
+        modify_jset_time_list(run_name, panel_name, times, bc_ti)
+
+        panel_name = 'BoundCondPanel.ionDens[0]'
+        modify_jset_time_list(run_name, panel_name, times, bc_ne)
+
 
     def modify_jset(self, path, run_name, ids_number, ids_output_number, b0, r0):
     
@@ -1204,41 +1262,6 @@ class IntegratedModellingRuns:
                 if line[:6].startswith('      ') and print_start != 0 and index == print_start + 1:
                     del read_data[index]
 
-
-        '''
-        print_start = 0
-        for index, line in enumerate(read_data):
-            if line[:6] == '  ALFI':
-                print_start = index
-                read_data[index] = read_data[index][:14] + imp_density  + '\n'
-            if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
-                del read_data[index]
-    
-        print_start = 0
-        for index, line in enumerate(read_data):
-            if line[:6] == '  ATMI':
-                print_start = index
-                read_data[index] = read_data[index][:14] + imp_mass  + '\n'
-            if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
-                del read_data[index]
-    
-        print_start = 0
-        for index, line in enumerate(read_data):
-            if line[:6] == '  NZEQ':
-                print_start = index
-                read_data[index] = read_data[index][:14] + imp_super  + '\n'
-            if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
-                read_data[index] = '             ' + '\n'
-    
-        print_start = 0
-        for index, line in enumerate(read_data):
-            if line[:6] == '  ZIPI':
-                print_start = index
-                read_data[index] = read_data[index][:14] + imp_charge  + '\n'
-            if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
-                read_data[index] = '             ' + '\n'
-        '''
-   
         with open(sensitivity_name + '/' + 'jetto.in', 'w') as f:
             for line in read_data:
                 f.writelines(line)
@@ -1498,7 +1521,7 @@ def modify_jset_time_polygon(run_name, time_start, time_end):
 
 def modify_jset_time_polygon_puff(run_name, time_start, time_end, puff_value):
 
-    times = [time_start, time_start+0.05, time_end]
+    times = [time_start, time_start+0.1, time_end]
     values = [0.0, puff_value, puff_value]
 
     line_start_list, new_content_list = [], []
@@ -1909,6 +1932,51 @@ def get_put_namelist(path):
     extranamelist = add_extraname_fields(extranamelist, 'DTNEFLFB', ['1', '2'])
     put_extraname_fields(path, extranamelist)
 
+def insert_jset_line(run_name, previous_line_start, content):
+
+    '''
+
+    Inserts a new line of the jset file. Substitutes after the first line starting with 'previous_line_start'
+
+    '''
+    read_data = []
+
+    with open(run_name + '/' + 'jetto.jset') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+        for index, line in enumerate(read_data):
+            if line.startswith(previous_line_start):
+                read_data.insert(index, content)
+
+    with open(run_name + '/' + 'jetto.jset', 'w') as f:
+        for line in read_data:
+            f.writelines(line)
+
+
+def delete_jset_line(run_name, line_start):
+
+    '''
+
+    Deletes any jset line starting with 'line_start'
+
+    '''
+    read_data = []
+
+    with open(run_name + '/' + 'jetto.jset') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+        for line in read_data:
+            if line.startswith(line_start):
+                read_data.delete(line)
+
+    with open(run_name + '/' + 'jetto.jset', 'w') as f:
+        for line in read_data:
+            f.writelines(line)
+
 
 def modify_jset_line(run_name, line_start, new_content):
 
@@ -1928,6 +1996,78 @@ def modify_jset_line(run_name, line_start, new_content):
         for index, line in enumerate(read_data):
             if line[:len_line_start] == line_start:
                 read_data[index] = read_data[index][:62] + new_content + '\n'
+
+    with open(run_name + '/' + 'jetto.jset', 'w') as f:
+        for line in read_data:
+            f.writelines(line)
+
+
+def create_jset_time_list(run_name, panel_name):
+
+    # Create a list with the start of the lines and the content to be used by 'modify_jset_line'
+    line_start_list = [panel_name + '.option']
+    for itime in range(len(times)):
+        line_start_list.append(panel_name + '.tpoly.select[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append(panel_name + '.tpoly.time[' + str(itime) + ']')
+    for itime in range(len(times)):
+        line_start_list.append(panel_name + '.tpoly.value[' + str(itime) + ']')
+
+    new_content_list = ['Time Dependent']
+    for itime in range(len(times)):
+        new_content_list.append('true')
+    for time in times:
+        new_content_list.append(str(time))
+    for value in values:
+        new_content_list.append(str(value))
+
+    return line_start_list, new_content_list
+
+
+def modify_jset_time_list(run_name, panel_name, times, values):
+
+    # Delete the old values that might be already there
+
+    delete_jset_line(run_name, panel_name)
+
+    # Create the list
+    line_start_list, new_content_list = create_jset_time_list(run_name, panel_name, times, values)
+
+    for line_start, new_content in zip(line_start_list, new_content_list):
+        modify_jset_line(run_name, line_start, new_content)
+
+
+def modify_jettoin_line(run_name, line_start, new_content):
+
+    '''
+
+    Modifies a line of the jetto.in file. Maybe it would be better to change all the lines at once but future work, not really speed limited now
+
+    '''
+
+    with open(run_name + '/' + 'jetto.jset') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+        if new_content.type == np.array or new_content.type == list:
+            for index, line in enumerate(read_data):
+                if line.startswith(line_start):
+                    for number in new_content:
+                        num_spaces = 9 - len(str(number))
+                        line_start += '  ' + f'{number:E}' + ' '*num_spaces + ','
+
+                    line_start += '\n'
+                    read_data[index] = line_start[2:]
+        elif new_content.type == float or new_content.type == int:
+            num_spaces = 9 - len(str(number))
+            line_start += '  ' + f'{number:E}' + ' '*num_spaces + ','
+            read_data[index] = line_start[2:]
+        elif new_content.type == str or new_content.type == np.str:
+            if new_content == '\n':
+                read_data[index] = new_content
+            else:
+                read_data[index] = line_start + new_content
 
     with open(run_name + '/' + 'jetto.jset', 'w') as f:
         for line in read_data:
@@ -2072,7 +2212,26 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}):
+
+    run_number = first_number
+    if not misallignements:
+        misallignements = [[1,1,1]]*len(shot_numbers)
+
+    for shot_number, run_input, run_start, time, misallignement in zip(shot_numbers, runs_input, runs_start, times, misallignements):
+        if run_number < 100:
+            run_name = 'run0' + str(run_number) + '_' + str(shot_number) + '_' + 'ohmic_predictive'
+        else:
+            run_name = 'run' + str(run_number) + '_' + str(shot_number) + '_' + 'ohmic_predictive'
+
+        run_number += 1
+
+        json_input['misalignment']['schema'] = misallignement
+
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = True, setup_time_polygon_impurities_flag = True, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = False, boundary_conditions = {})
+        run_test.setup_create_compare()
+
+
 if __name__ == "__main__":
-    print('main')
 
     print('main, not supported, use commands')
