@@ -313,6 +313,12 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # To save time, core_profiles and equilibrium are saved and passed
 
+    if json_input['instructions']['impose ip']:
+        impose_linear_ip = (db, shot, run_input, run_start, json_input['imposed quantities']['imposed ip'], json_input['imposed quantities']['imposed ip times'])
+    if json_input['instructions']['impose nel']:
+        impose_linear_nel = (db, shot, run_input, run_start, json_input['imposed quantities']['imposed nel'], json_input['imposed quantities']['imposed nel times'])
+
+
     return core_profiles, equilibrium
 
 
@@ -2513,7 +2519,79 @@ def flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_t
     equilibrium_new.put(db_entry = data_entry_target)
     data_entry_target.close()
 
+
+# ------------------------------- SETTIN PROFILES ---------------------------------
+
+def impose_linear_ip(db, shot, run, run_target, array_ip, array_time, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    equilibrium_new = copy.deepcopy(equilibrium)
+
+    times = equilibrium_new.time
+
+    ip = interpolate_linearly(times, array_time, array_ip)
+
+    for itime, time_slice in enumerate(equilibrium.time_slice):
+        equilibrium_new.time_slice[itime].global_quantities.ip = ip[itime]
+
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    equilibrium_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+
+def impose_linear_nel(db, shot, run, run_target, array_nel, array_time, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    summary = open_and_get_ids(db, shot, run, 'summary', username = username, backend = backend)
+    pulse_schedule = open_and_get_ids(db, shot, run, 'pulse_schedule', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    summary_new = copy.deepcopy(summary)
+    pulse_schedule_new = copy.deepcopy(pulse_schedule)
+
+    times_summary = summary.time
+    times_pulse_schedule = pulse_schedule.density_control.n_e_line.reference.time
+
+    nel = interpolate_linearly(times, array_time, array_nel)
+
+    summary.line_average.n_e.value = nel
+    pulse_schedule.density_control.n_e_line.reference.data = nel
+
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    equilibrium_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+
+def interpolate_linearly(new_times, times, signals):
+    # Ensure times and signals have the same length
+    if len(times) != len(signals):
+        raise ValueError("The 'times' and 'signals' arrays must have the same length.")
+
+    # Perform linear interpolation
+    interpolated_signals = np.interp(new_times, times, signals)
+
+    return interpolated_signals
+
+
 # ------------------------------- KINETIC PROFILES MANIPULATION ---------------------------------
+
 
 def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
@@ -2666,8 +2744,8 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
             te_sep_time.append(te_sep)
 
         elif method_te == 'linear':
-            if te_sep is list:
-                te_sep_time.append((te_sep[1]-te_sep[0])*(time-time[0])/time[-1])
+            if type(te_sep) == list:
+                te_sep_time.append((te_sep[1]-te_sep[0])*(time-times[0])/times[-1] + te_sep[0])
             else:
                 print('te sep needs to be a list with the first and the last value when method is linear. Aborting')
                 exit()
@@ -2692,6 +2770,15 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
                 te_sep_time.append((temp_continuity - temp_start + te_sep)/time_continuity*time + temp_start)
             else:
                 te_sep_time.append(e_temperatures[itime][-1] + te_sep)
+
+        elif method_te == 'add early to constant':
+            # Sets initial temperature at temp_start eV and goes linearly to whatever value there is at temp_continuity. Still adds te_sep
+            temp_continuity = te_sep
+
+            if time < time_continuity:
+                te_sep_time.append((te_sep - temp_start)/time_continuity*time + temp_start)
+            else:
+                te_sep_time.append(te_sep)
 
         elif method_te == 'add early high':
             # Sets initial temperature at 100 eV and goes linearly to whatever value there is at 0.05. Still adds. Now that I added flexibility should be the same as add early
@@ -2721,9 +2808,9 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
 
         elif method_ti == 'linear':
             if ti_sep is list:
-                ti_sep_time.append((ti_sep[1]-ti_sep[0])*(time-time[0])/time[-1])
+                ti_sep_time.append((ti_sep[1]-ti_sep[0])*(time-time[0])/time[-1] + ti_sep[0])
             elif ti_sep == 'te':
-                ti_sep_time.append((te_sep[1]-te_sep[0])*(time-time[0])/time[-1])
+                ti_sep_time.append((te_sep[1]-te_sep[0])*(time-time[0])/time[-1] + te_sep[0])
             else:
                 print('ti sep needs to be a list with the first and the last value when method is linear. Aborting')
                 exit()
@@ -2792,11 +2879,18 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     ne_sep_time = []
     time_continuity_density = extra_boundary_instructions['time continuity density']
     ne_sep = extra_boundary_instructions['ne sep']
+
     ne_start = extra_boundary_instructions['ne start']
     for itime, time in enumerate(times):
         # Setting ne
         if extra_boundary_instructions['method ne'] == 'constant':
             ne_sep_time.append(extra_boundary_instructions['ne sep'])
+        elif extra_boundary_instructions['method ne'] == 'linear':
+            if type(ne_sep) == list:
+                ne_sep_time.append((ne_sep[1]-ne_sep[0])*(time-times[0])/times[-1] + ne_sep[0])
+            else:
+                print('ne sep needs to be a list with the first and the last value when method is linear. Aborting')
+                exit()
         elif extra_boundary_instructions['method ne'] == 'limit':
             ne_sep_time.append(ids_dict['profiles_1d']['electrons.density'][itime][-1])
         elif extra_boundary_instructions['method ne'] == 'set early':
