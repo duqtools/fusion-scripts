@@ -77,11 +77,13 @@ keys_list['profiles_1d'] = [
     'core_profiles.profiles_1d[].rotation_frequency_tor_sonic',
     'core_profiles.profiles_1d[].zeff',
     'core_profiles.profiles_1d[].grid.rho_tor_norm',
+    'core_profiles.profiles_1d[].grid.volume',
     'equilibrium.time_slice[].profiles_1d.psi',
     'equilibrium.time_slice[].profiles_1d.f', 
     'equilibrium.time_slice[].profiles_1d.q', 
     'equilibrium.time_slice[].profiles_1d.pressure', 
-    'equilibrium.time_slice[].profiles_1d.rho_tor_norm', 
+    'equilibrium.time_slice[].profiles_1d.rho_tor_norm',
+    'equilibrium.time_slice[].profiles_1d.volume',
     'equilibrium.time_slice[].boundary.outline.r', 
     'equilibrium.time_slice[].boundary.outline.z', 
     'equilibrium.time_slice[].profiles_2d[].grid.dim1', 
@@ -169,6 +171,9 @@ def expand_error_keys(category=None):
                 error_keys.append(var+'.'+key)
     return error_keys
 
+choices_error = ["absolute", "relative", "relative volume"]
+
+
 def input():
 
     parser = argparse.ArgumentParser(
@@ -197,7 +202,7 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
 #    parser.add_argument("--analyze_traces",   nargs='*', type=str,   default=None, choices=["absolute_error"],             help="Define which analyses to perform after time trace comparison plots")
 #    parser.add_argument("--analyze_profiles", nargs='*', type=str,   default=None, choices=["average_absolute_error"],     help="Define which analyses to perform after profile comparison plots")
     parser.add_argument("--analyze",                                 default=False, action='store_true',                   help="Toggle extra analysis routines, automatically toggles uniform")
-    parser.add_argument("--error_type",                   type=str,  default="absolute", choices=["absolute", "relative"], help="Switches between absolute and relative error")
+    parser.add_argument("--error_type",                   type=str,  default="absolute", choices=choices_error, help="Switches between absolute and relative error")
     parser.add_argument("--correct_sign",                            default=None, action='store_true',                    help="Allows to change the sign of the output if it is not identical to reference run")
     parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                         help="Specify functions of multiple variables")
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
@@ -314,6 +319,10 @@ def get_label_variable(variable):
             ylabel[0] = ylabel[0] + 'Relative error '
             ylabel[1] = '[-]'
 
+        elif 'relative_error_volume' in variable:
+            ylabel[0] = ylabel[0] + 'Relative error '
+            ylabel[1] = '[-]'
+
         return ylabel[0] + ylabel[1]
     else:
         return variable
@@ -392,7 +401,7 @@ def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
                 xstring = 'ids.time[tt]'
         if idsname == 'equilibrium':
             if datatype == 'profiles_1d':
-                xstring = 'ids.profiles_1d[tt].grid.rho_tor_norm'
+                xstring = 'ids.time_slice[tt].profiles_1d.rho_tor_norm'
             if datatype == 'time_trace':
                 xstring = 'ids.time[tt]'
             if datatype == 'profiles_2d':
@@ -787,7 +796,8 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
 
             plt.show()
 
-            f = r'animation_' + get_label_variable(signame) + r'.gif'
+            iden_animation = get_label_variable(signame).replace('$','')
+            f = r'animation_' + iden_animation.replace(' ','_') + r'.gif'
             anim_created.save(f, writer='writergif')
 
             # good practice to close the plt object.
@@ -851,9 +861,21 @@ def print_profile_errors(profile_error_dict, custom_vars=None):
 def absolute_error(data1, data2):
     return np.abs(data1 - data2)
 
-#Testing with relative errors
+#Switch for relative errors
 def relative_error(data1, data2):
     return np.abs(2*(data1 - data2)/(data1 + data2))
+
+#Testing with errors weighted on the volume
+def relative_error_volume(data1, volume1, data2, volume2):
+    volumes = (volume1+volume2)/2
+    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
+    distances = np.asarray([])
+    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
+        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
+
+    distances = distances.reshape(np.shape(volumes))
+
+    return distances
 
 def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
     out_dict = {}
@@ -872,6 +894,8 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                         var = signame+".absolute_error"
                     elif error_type == 'relative':
                         var = signame+".relative_error"
+                    elif error_type == 'relative volume':
+                        var = signame+".relative_error_volume"
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
@@ -880,6 +904,8 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                     if error_type == 'absolute':
                         comp_data = absolute_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'relative':
+                        comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'relative volume':
                         comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     else:
                         print('Option for the error not recognized') #Should raise exception
@@ -902,11 +928,16 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                 if first_data is None:
                     first_run = run
                     first_data = analysis_dict[signame][first_run]
+                    if error_type == 'relative volume':
+                        signame_volume = 'core_profiles.profiles_1d[].grid.volume'
+                        first_data_volume = analysis_dict[signame_volume][first_run]
                 else:
                     if error_type == 'absolute':
                         var = signame+".average_absolute_error"
                     elif error_type == 'relative':
                         var = signame+".average_relative_error"
+                    elif error_type == 'relative volume':
+                        var = signame+".average_relative_error_volume"
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
@@ -916,6 +947,8 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                         comp_data = absolute_error(analysis_dict[signame][run], first_data)
                     elif error_type == 'relative':
                         comp_data = relative_error(analysis_dict[signame][run], first_data)
+                    elif error_type == 'relative volume':
+                        comp_data = relative_error_volume(analysis_dict[signame][run], analysis_dict[signame_volume][run], first_data, first_data_volume)
                     else:
                         print('Option for the error not recognized') #Should raise exception
 
@@ -1267,12 +1300,22 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
 
+    if error_type == 'relative volume':
+        signals.append('core_profiles.profiles_1d[].grid.volume')
+
     data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis)
 
     if plot:
         if standardize:
-            plot_interpolated_traces(data_dict)
-            plot_gif_interpolated_profiles(data_dict)
+            if error_type == 'relative volume':
+                data_dict_no_vol = copy.deepcopy(data_dict)
+                del data_dict_no_vol['core_profiles.profiles_1d[].grid.volume']
+
+                plot_interpolated_traces(data_dict_no_vol)
+                plot_gif_interpolated_profiles(data_dict_no_vol)
+            else:
+                plot_interpolated_traces(data_dict)
+                plot_gif_interpolated_profiles(data_dict)
         else:
             plot_traces(data_dict, single_time_reference=steady_state)
             plot_gif_profiles(data_dict, single_time_reference=steady_state)
@@ -1290,7 +1333,13 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
             plot_interpolated_traces(time_error_dict)
 
         options = {"average_error": True, "error_type": error_type}
+
         profile_error_dict = perform_profile_analysis(data_dict, **options)
+
+        if error_type == 'relative volume':
+            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume']
+            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume.t']
+
 
         if plot:
             plot_interpolated_traces(profile_error_dict)
