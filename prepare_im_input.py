@@ -2836,12 +2836,6 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
 
-    e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
-    i_temperatures = ids_dict['profiles_1d']['t_i_average']
-    e_densities = ids_dict['profiles_1d']['electrons.density']
-    rhos = ids_dict['profiles_1d']['grid.rho_tor_norm']
-    times = ids_dict['time']['core_profiles']
-
     #Corrects Ti in case something is really wrong on the data, for example all zeros.
     #This is done before the correction of Ti later since this step might push Ti outside plausible limits
     # Should be a function in the refactoring
@@ -2853,6 +2847,11 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
         new_profiles = np.where(ion_temperatures > 1, ion_temperatures, electron_temperatures)
         ids_dict['profiles_1d'][key] = new_profiles
 
+    e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
+    i_temperatures = ids_dict['profiles_1d']['t_i_average']
+    e_densities = ids_dict['profiles_1d']['electrons.density']
+    rhos = ids_dict['profiles_1d']['grid.rho_tor_norm']
+    times = ids_dict['time']['core_profiles']
 
     method_te = extra_boundary_instructions['method te']
     method_ti = extra_boundary_instructions['method ti']
