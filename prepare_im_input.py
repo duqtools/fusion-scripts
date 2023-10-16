@@ -9,7 +9,7 @@ import functools
 import copy
 import json
 from scipy import integrate
-from scipy.interpolate import interp1d, UnivariateSpline
+from scipy.interpolate import interp1d, UnivariateSpline, RectBivariateSpline, RegularGridInterpolator
 #import idstools
 #from idstools import *
 from packaging import version
@@ -51,6 +51,7 @@ if imas is not None:
 '''
 
 # passing json file name now. Maybe would be better to add the option to pass the dictionary already...
+
 
 def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time_end = 100, force_input_overwrite = False, verbose = False, core_profiles = None, equilibrium = None):
 
@@ -314,9 +315,16 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     # To save time, core_profiles and equilibrium are saved and passed
 
     if json_input['instructions']['impose ip']:
-        impose_linear_ip = (db, shot, run_input, run_start, json_input['imposed quantities']['imposed ip'], json_input['imposed quantities']['imposed ip times'])
+        impose_linear_ip(db, shot, run_input, run_start, json_input['imposed quantities']['imposed ip'], json_input['imposed quantities']['imposed ip times'])
+        run_input, run_start = run_start, run_start+1
     if json_input['instructions']['impose nel']:
-        impose_linear_nel = (db, shot, run_input, run_start, json_input['imposed quantities']['imposed nel'], json_input['imposed quantities']['imposed nel times'])
+        impose_linear_nel(db, shot, run_input, run_start, json_input['imposed quantities']['imposed nel'], json_input['imposed quantities']['imposed nel times'])
+        run_input, run_start = run_start, run_start+1
+
+    if json_input['instructions']['correct equilibrium']:
+        prepare_equilibrium_psi(db, shot, run_input, run_start, backend = backend)
+        print('correcting the equilibrium on index ' + str(run_start))
+        run_input, run_start = run_start, run_start+1
 
 
     return core_profiles, equilibrium
@@ -2522,6 +2530,123 @@ def flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_t
 
 # ------------------------------- SETTIN PROFILES ---------------------------------
 
+def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    equilibrium_new = copy.deepcopy(equilibrium)
+    times = equilibrium_new.time
+
+    def find_extrema_psi(psi, r, z, extrema = 'maximum', cut_size = 5):
+        shape_psi = psi.shape
+        cut_col, cut_row = shape_psi[0]//cut_size, shape_psi[1]//cut_size
+        psi_search = psi[cut_col:shape_psi[0]-cut_col,cut_row:shape_psi[1]-cut_row]
+
+        if extrema == 'maximum':
+            extrema_index = np.argmax(psi_search)
+        elif extrema == 'minimum':
+            extrema_index = np.argmin(psi_search)
+
+        # Convert the flattened index into row and column indices
+        col_index, row_index = np.unravel_index(extrema_index, psi_search.shape)
+        index_col_extrema, index_row_extrema = col_index + cut_col, row_index + cut_row
+
+        return index_col_extrema, index_row_extrema
+
+    def find_left_and_right_minimas(array, index_max):
+        imin_left = np.argmin(array[:index_max])
+        imin_right = np.argmin(array[index_max:]) + index_max
+        return imin_left, imin_right
+
+    def build_skeleton_new_psi(psi, imin_left_row, imax_right_row, imin_left_col, imax_right_col):
+        #new_psi = np.zeros(psi.shape)
+        boundary_value_up = np.min(psi[0,:])
+        boundary_value_down = np.min(psi[-1,:])
+        boundary_value_left = np.min(psi[:,0])
+        boundary_value_right = np.min(psi[:,-1])
+
+        
+        # Fill core
+        new_psi = copy.deepcopy(psi[imin_left_col:imax_right_col,imin_left_row:imax_right_row])
+        # Fill all boundaires
+        boundary_row_down, boundary_row_up = copy.deepcopy(new_psi[0,:]), copy.deepcopy(new_psi[-1,:])
+        boundary_col_left, boundary_col_right = copy.deepcopy(new_psi[:,0]), copy.deepcopy(new_psi[:,-1])
+        boundary_row_up[:], boundary_row_down[:] = boundary_value_up, boundary_value_down
+        boundary_col_left[:], boundary_col_right[:] = boundary_value_left, boundary_value_right
+
+        
+        if imin_left_row != 0:
+            new_psi = np.hstack((boundary_col_left[:, np.newaxis], new_psi))
+            boundary_row_up = np.concatenate(([boundary_value_up], boundary_row_up))
+            boundary_row_down = np.concatenate(([boundary_value_down], boundary_row_down))
+        if imin_right_row != (psi.shape[1]-1):
+            new_psi = np.hstack((new_psi, boundary_col_right[:, np.newaxis]))
+            boundary_row_up = np.concatenate((boundary_row_up, [boundary_value_up]))
+            boundary_row_down = np.concatenate((boundary_row_down, [boundary_value_down]))
+        if imin_left_col != 0:
+            new_psi = np.vstack((boundary_row_down, new_psi))
+        if imin_right_col != (psi.shape[0]-1):
+            new_psi = np.vstack((new_psi, boundary_row_up))
+
+        return new_psi
+
+
+    def create_r_z_interp(r, z, imin_left_col, imin_right_col, imin_left_row, imin_right_row):
+
+        r_interpolation = r[imin_left_col:imin_right_col,0] 
+        z_interpolation = z[0,imin_left_row:imin_right_row]
+
+        if imin_left_row != 0:
+            z_interpolation = np.concatenate(([z[0,0]], z_interpolation))
+        if imin_right_row != (psi.shape[1]-1):
+            z_interpolation = np.concatenate((z_interpolation, [z[-1,-1]]))
+        if imin_left_col != 0:
+            r_interpolation = np.concatenate(([r[0,0]], r_interpolation))
+        if imin_right_col != (psi.shape[0]-1):
+            r_interpolation = np.concatenate((r_interpolation, [r[-1,-1]]))
+
+        return z_interpolation, r_interpolation
+
+
+    for index, time_slice in enumerate(equilibrium.time_slice):
+
+        psi = time_slice.profiles_2d[0].psi
+        r = time_slice.profiles_2d[0].r
+        z = time_slice.profiles_2d[0].z
+
+        icol_max, irow_max = find_extrema_psi(psi, r, z, cut_size = 5)
+        col_max_psi = psi[:,irow_max]
+        row_max_psi = psi[icol_max,:]
+
+        imin_left_col, imin_right_col = find_left_and_right_minimas(col_max_psi, icol_max)
+        imin_left_row, imin_right_row = find_left_and_right_minimas(row_max_psi, irow_max)
+
+        psi_compare = build_skeleton_new_psi(psi, imin_left_row, imin_right_row, imin_left_col, imin_right_col)
+        z_interpolation, r_interpolation = create_r_z_interp(r, z, imin_left_col, imin_right_col, imin_left_row, imin_right_row)
+
+        interp_func = RectBivariateSpline(r_interpolation, z_interpolation, psi_compare, kx=3, ky=3, s=1e-4)
+
+        psi_new = np.zeros(psi.shape)
+        for r_row, z_row, i in zip(r, z, np.arange(psi.shape[0])):
+            for r_point, z_point, j in zip(r_row, z_row, np.arange(psi.shape[1])):
+                psi_new[i,j] = interp_func(r_point, z_point)[0, 0]
+
+        equilibrium_new.time_slice[index].profiles_2d[0].psi = psi_new
+
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    equilibrium_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+
 def impose_linear_ip(db, shot, run, run_target, array_ip, array_time, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
     if not username: username=getpass.getuser()
@@ -2567,15 +2692,17 @@ def impose_linear_nel(db, shot, run, run_target, array_nel, array_time, username
     times_summary = summary.time
     times_pulse_schedule = pulse_schedule.density_control.n_e_line.reference.time
 
-    nel = interpolate_linearly(times, array_time, array_nel)
+    nel_pulse_schedule = interpolate_linearly(times_pulse_schedule, array_time, array_nel)
+    nel_summary = interpolate_linearly(times_summary, array_time, array_nel)
 
-    summary.line_average.n_e.value = nel
-    pulse_schedule.density_control.n_e_line.reference.data = nel
+    pulse_schedule.density_control.n_e_line.reference.data = nel_pulse_schedule
+    summary.line_average.n_e.value = nel_summary
 
     data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
-    equilibrium_new.put(db_entry = data_entry_target)
+    summary.put(db_entry = data_entry_target)
+    pulse_schedule.put(db_entry = data_entry_target)
     data_entry_target.close()
 
 
@@ -3664,7 +3791,7 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
             ids = idss_in.__dict__[name]
 
             stdout = sys.stdout
-            sys.stdout = open('/afs/eufus.eu/user/g/' + username + '/warnings_imas.txt', 'w') # suppress warnings
+            sys.stdout = open('/afs/eufus.eu/user/g/g2mmarin/warnings_imas.txt', 'w') # suppress warnings
             ids.get(i)
 #            sys.stdout = stdout
             ids.setExpIdx(idx)
@@ -3797,7 +3924,11 @@ keys_list['traces']['equilibrium'] = [
     'profiles_2d[].grid_type.index'
 ]
 
-keys_list['profiles_2d']['equilibrium'] = ['profiles_2d[].psi']
+keys_list['profiles_2d']['equilibrium'] = [
+    'profiles_2d[].psi',
+    'profiles_2d[].r',
+    'profiles_2d[].z'
+]
 
 keys_list['profiles_1d']['core_sources'] = [
     'total#electrons.energy',
