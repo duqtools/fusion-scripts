@@ -14,7 +14,10 @@
         "correct boundaries": false,
         "correct zeff": false,
         "correct ion temperature": false,
-        "flat q profile": false
+        "flat q profile": false,
+        "impose ip": false,
+        "impose nel": false,
+        "correct equilibrium": false
     },
 
     "rebase": {
@@ -77,6 +80,7 @@
             "add on te profile",
             "add no start",
             "add early",
+            "add early to constant",
             "add early high"
         ]
     },
@@ -115,5 +119,11 @@
             "linear",
             "parabolic"
         ]
+    },
+    "imposed quantities": {
+         "imposed ip": [0, 1e5, 1e5, 0],
+         "imposed nel": [0, 1e13, 1e13, 0],
+         "imposed ip times": [0, 0.2, 1.8, 2.0],
+         "imposed nel times": [0, 0.2, 1.8, 2.0]
     }
 }
