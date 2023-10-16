@@ -3791,7 +3791,7 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
             ids = idss_in.__dict__[name]
 
             stdout = sys.stdout
-            sys.stdout = open('/afs/eufus.eu/user/g/g2mmarin/warnings_imas.txt', 'w') # suppress warnings
+            sys.stdout = open('/afs/eufus.eu/user/g/' + username + '/warnings_imas.txt', 'w') # suppress warnings
             ids.get(i)
 #            sys.stdout = stdout
             ids.setExpIdx(idx)
