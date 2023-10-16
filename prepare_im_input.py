@@ -3233,6 +3233,7 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
         ion_temperatures = ids_dict['profiles_1d'][key]
         electron_temperatures = ids_dict['profiles_1d']['electrons.temperature']
         new_profiles = np.where(ion_temperatures/electron_temperatures < ratio_limit, ion_temperatures, ratio_limit*electron_temperatures)
+        new_profiles = np.where(ion_temperatures != 0, ion_temperatures, electron_temperatures)
         ids_dict['profiles_1d'][key] = new_profiles
 
     ids_data.ids_dict = ids_dict
