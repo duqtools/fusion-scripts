@@ -139,13 +139,16 @@ def copy_ids_entry(db, shot, run, shot_target, run_target, ids_list = [], userna
 
     print('Opening', username, db, imas_version, shot, run)
     idss_in = imas.ids(shot, run)
-    op = idss_in.open_env(username, db, imas_major_version)
+
+    if backend == 'hdf5':
+        op = idss_in.open_env_backend(username, db, imas_major_version, imasdef.MDSPLUS_BACKEND)
+    if backend == 'mdsplus':
+        op = idss_in.open_env_backend(username, db, imas_major_version, imasdef.HDF5_BACKEND)
 
     if op[0]<0:
         print('The entry you are trying to copy does not exist')
         exit()
     print('Creating', username, db, imas_version, shot_target, run_target)
-
 
     #idss_out = imas.ids(shot_target, run_target)
     #idss_out.create_env(username, db, imas_major_version)
