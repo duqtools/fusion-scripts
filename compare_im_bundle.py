@@ -26,6 +26,50 @@ plot_errors('/afs/eufus.eu/user/g/user/mylist.txt', ['summary.global_quantities.
 
 '''
 
+'''
+def input():
+
+    parser = argparse.ArgumentParser(
+        description=
+"""Compare validation metrics from HFPS input / output IDSs. Preliminary version, adapted from scripts from D. Yadykin and M. Marin.\n
+---
+Examples:\n
+python compare_im_bundle.py --
+---
+plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False, error_type = 'absolute')
+""",
+    epilog="",
+    formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument("--file_name",  "-f",              type=str,   default="mdsplus", choices=["mdsplus", "hdf5"],       help="Name of the file with the run information")
+    parser.add_argument("--signals",      "-s",   nargs='+', type=str,   default=None,                                         help="List of signals to be compared")
+    parser.add_argument("--time_begin",                  type=float, default=None,                                         help="Slice shot file beginning at time (s)")
+    parser.add_argument("--time_end",                    type=float, default=None,                                         help="Slice shot file ending at time (s)")
+    parser.add_argument("--plot_type",         nargs='*', type=float, default=None,                                         help="Plot time. 1 groups sensitivities, 2 groups shots")
+    parser.add_argument("--username",       , nargs='+', type=str,   default=None,                                         help="Username of the owner of input IDSs and runs")
+    parser.add_argument("--correct_sign",                            default=False, action='store_true',                   help="Flag to correct sign if opposite for exp and model")
+    parser.add_argument("--steady_state",                               default=False, action='store_true',                   help="Flag to identify that the input is a single point")
+    parser.add_argument("--uniform",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+    parser.add_argument("--signal_operator",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+    parser.add_argument("--show_fit",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+    parser.add_argument("--error_type",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+
+    args=parser.parse_args()
+
+    return args
+'''
+
+
+
+
+
+
+fontsize_title = 20
+fontsize_xlabel = 15
+fontsize_ylabel = 15
+fontsize_legend = 11
+fontsize_ticks = 14
+
 exp_signal_list = ['te', 'ne', 'ti', 'ni']
 
 def get_label_variable(variable):
@@ -45,14 +89,26 @@ def get_label_variable(variable):
     elif variable == 'summary.global_quantities.li.value':
         return r'$li_{3}$'
 
+    elif variable == 'core_profiles.profiles_1d[].electrons.density':
+        return r'$n_e$'
+    elif variable == 'core_profiles.profiles_1d[].electrons.temperature':
+        return r'$T_e$'
+    elif variable == 'core_profiles.profiles_1d[].ion[0].density':
+        return r'$n_C$'
+    elif variable == 'core_profiles.profiles_1d[].ion[0].temperature':
+        return r'$T_i$'
+
     else:
         return variable
 
 
-def get_measure_variable(variable):
+def get_measure_variable(variable, error_type = 'absolute'):
     """
     Get the label variable string for a given variable.
     """
+    if error_type == 'relative':
+        return r'[-]'
+
     if variable == 'te':
         return r'[-]'
     elif variable == 'ne':
@@ -66,11 +122,20 @@ def get_measure_variable(variable):
     elif variable == 'summary.global_quantities.li.value':
         return r'[-]'
 
+    elif variable == 'core_profiles.profiles_1d[].electrons.density':
+        return r'[$m^{-3}$]'
+    elif variable == 'core_profiles.profiles_1d[].electrons.temperature':
+        return r'[eV]'
+    elif variable == 'core_profiles.profiles_1d[].ion[0].density':
+        return r'[$m^{-3}$]'
+    elif variable == 'core_profiles.profiles_1d[].ion[0].temperature':
+        return r'[eV]'
+
     else:
         return variable
 
 
-def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv'):
+def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', error_type = 'absolute'):
 
     time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
 
@@ -84,7 +149,7 @@ def get_error(shot, run_input, run_output, signal, time_begin = None, time_end =
         print('Warning! One run did not finish properly. Substituting 0 as error')
         errors = [0.0]
     else:
-        time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signals, idslist, time_begin, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None)
+        time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signals, idslist, time_begin, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None, error_type = error_type)
 
         errors = []
         for signal in time_error_averages:
@@ -98,11 +163,11 @@ def get_error(shot, run_input, run_output, signal, time_begin = None, time_end =
     return errors
 
 
-def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False):
+def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False, error_type = 'absolute'):
 
     time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
 
-    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit)
+    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit, error_type = error_type)
 
     errors = []
 
@@ -186,10 +251,10 @@ def plot_errors_time(filename, signals, time_begin = None, time_end = None):
         title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
         title = 'Normalized error for ' + title_variable
 
-        ax[icolumns][iraws].set_title(title)
-        ax[icolumns][iraws].legend()
-        ax[icolumns][iraws].set_xlabel(r'time [s]')
-        ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]')
+        ax[icolumns][iraws].set_title(title, fontsize = fontsize_title)
+        ax[icolumns][iraws].legend(fontsize = fontsize_legend)
+        ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
+        ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]', fontsize = fontsize_ylabel)
         fig.tight_layout()
 
     plt.show()
@@ -208,7 +273,7 @@ def separate_signal_lists(signals):
     return exp_signals, mod_signals
 
 
-def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False):
+def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False, error_type = 'absolute'):
 
     # Ideally want to use the other functions, but I cannot figure out how to use the axes that way...
     if not username: username=getpass.getuser()
@@ -237,7 +302,7 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
     idslist = generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False)
     data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, mod_signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
 
-    options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
+    options_trace, options_profile = {'error': True, 'error_type' : error_type}, {'average_error': True, 'error_type' : error_type}
     time_error_dict = compare_im_runs.perform_time_trace_analysis(data_dict, **options_trace)
     profile_error_dict = compare_im_runs.perform_profile_analysis(data_dict, **options_profile)
 
@@ -250,19 +315,19 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
             title = titles[signame] if signame in titles else signame
             ylabel = ylabels[signame] if signame in ylabels else signame
 
-            if signame+'.absolute_error.t' in time_error_dict:
-                for run, label in zip(time_error_dict[signame+'.absolute_error'], labels):
-                    ax[icolumns][iraws].plot(time_error_dict[signame+'.absolute_error.t'], time_error_dict[signame+'.absolute_error'][run].flatten(), label=label)
-            elif signame+'.average_absolute_error.t' in profile_error_dict:
-                for run, label in zip(profile_error_dict[signame+'.average_absolute_error'], labels):
-                    ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_absolute_error.t'], profile_error_dict[signame+'.average_absolute_error'][run].flatten(), label=label)
+            if signame+'.'+error_type+'_error.t' in time_error_dict:
+                for run, label in zip(time_error_dict[signame+'.'+error_type+'_error'], labels):
+                    ax[icolumns][iraws].plot(time_error_dict[signame+'.'+error_type+'_error.t'], time_error_dict[signame+'.'+error_type+'_error'][run].flatten(), label=label)
+            elif signame+'.average_'+error_type+'_error.t' in profile_error_dict:
+                for run, label in zip(profile_error_dict[signame+'.average_'+error_type+'_error'], labels):
+                    ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_'+error_type+'_error.t'], profile_error_dict[signame+'.average_'+error_type+'_error'][run].flatten(), label=label)
             else:
                 print('signal ' + signame + ' not recognized, aborting')
 
             ax[icolumns][iraws].set_title(title)
             ax[icolumns][iraws].legend(loc='best')
-            ax[icolumns][iraws].set_xlabel(r'time [s]')
-            ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel)
+            ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
+            ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel, fontsize = fontsize_ylabel)
 
         elif signame in exp_signals:
 
@@ -282,10 +347,10 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
             title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
             title = 'Normalized error for ' + title_variable
 
-            ax[icolumns][iraws].set_title(title)
-            ax[icolumns][iraws].legend()
-            ax[icolumns][iraws].set_xlabel(r'time [s]')
-            ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]')
+            ax[icolumns][iraws].set_title(title, fontsize = fontsize_title)
+            ax[icolumns][iraws].legend(fontsize = fontsize_legend)
+            ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
+            ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]', fontsize = fontsize_ylabel)
         else:
             print('signal not recognized. Aborting')
             exit()
@@ -363,7 +428,7 @@ def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False
     return idslist
 
 
-def plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False):
+def plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False, error_type = 'absolute'):
 
     db, shot, run_exp, labels, runs_output = read_file_time_dep(filename, show_fit = show_fit)
     if not username: username=getpass.getuser()
@@ -382,7 +447,8 @@ def plot_errors_traces(filename, signals, username = None, time_begin = None, ti
     idslist = generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = show_fit)
     data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
 
-    options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
+    #options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
+    options_trace, options_profile = {'error': True, 'error_type' : error_type}, {'average_error': True, 'error_type' : error_type}
     time_error_dict = compare_im_runs.perform_time_trace_analysis(data_dict, **options_trace)
     profile_error_dict = compare_im_runs.perform_profile_analysis(data_dict, **options_profile)
 
@@ -393,19 +459,19 @@ def plot_errors_traces(filename, signals, username = None, time_begin = None, ti
         title = titles[signame] if signame in titles else signame
         ylabel = ylabels[signame] if signame in ylabels else signame
 
-        if signame+'.absolute_error.t' in time_error_dict:
-            for run, label in zip(time_error_dict[signame+'.absolute_error'], labels):
-                ax[icolumns][iraws].plot(time_error_dict[signame+'.absolute_error.t'], time_error_dict[signame+'.absolute_error'][run].flatten(), label=label)
-        elif signame+'.average_absolute_error.t' in profile_error_dict:
-            for run, label in zip(profile_error_dict[signame+'.average_absolute_error'], labels):
-                ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_absolute_error.t'], profile_error_dict[signame+'.average_absolute_error'][run].flatten(), label=label)
+        if signame+'.'+error_type+'_error.t' in time_error_dict:
+            for run, label in zip(time_error_dict[signame+'.'+error_type+'_error'], labels):
+                ax[icolumns][iraws].plot(time_error_dict[signame+'.'+error_type+'_error.t'], time_error_dict[signame+'.'+error_type+'_error'][run].flatten(), label=label)
+        elif signame+'.average_'+error_type+'_error.t' in profile_error_dict:
+            for run, label in zip(profile_error_dict[signame+'.average_'+error_type+'_error'], labels):
+                ax[icolumns][iraws].plot(profile_error_dict[signame+'.average_'+error_type+'_error.t'], profile_error_dict[signame+'.average_'+error_type+'_error'][run].flatten(), label=label)
         else:
             print('signal ' + signame + ' not recognized, aborting')
 
-        ax[icolumns][iraws].set_title(title)
-        ax[icolumns][iraws].legend(loc='best')
-        ax[icolumns][iraws].set_xlabel(r'time [s]')
-        ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel)
+        ax[icolumns][iraws].set_title(title, fontsize = fontsize_title)
+        ax[icolumns][iraws].legend(loc='best', fontsize = fontsize_legend)
+        ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
+        ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel, fontsize = fontsize_ylabel)
         #fig.tight_layout()
 
     plt.show()
@@ -416,7 +482,7 @@ def get_input_run_lists(filename):
     file_runs = open(filename, 'r')
     lines = file_runs.readlines()
     shot_list, run_input_list, run_output_list, saw_file_paths = [], [], [], []
-    labels_plot = lines[0][:-1].split(' ')
+    labels_plot = lines[0][:-1].split('|')
 
     for line in lines[1:]:
         shot, run_input, *runs_output = line.split(' ')
@@ -432,6 +498,7 @@ def get_input_run_lists(filename):
                 if run_output.isdigit():
                     run_output_list.append(int(run_output))
                 else:
+                    run_output = run_output.replace('\n','')
                     run_output_list.append(run_output)
             # Maybe not a nice way to do it but keeps the structure later
             saw_file_paths.append(None)
@@ -449,7 +516,7 @@ def get_input_run_lists(filename):
     return num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot
 
 
-def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1):
+def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1, error_type = 'absolute'):
 
     num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot = get_input_run_lists(filename)
 
@@ -458,7 +525,7 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
     label_signals, measure_signals = {}, {}
     for signal in signal_list:
         label_signals[signal] = get_label_variable(signal)
-        measure_signals[signal] = get_measure_variable(signal)
+        measure_signals[signal] = get_measure_variable(signal, error_type = error_type)
 
     if plot_type == 1:
         for isignal, signal in enumerate(signal_list):
@@ -475,22 +542,23 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                 #if signal not in exp_signal_list:
                 for shot, run_input, run_output, saw_file_path in zip(shot_list, run_input_list, run_output_list[:,run_serie], saw_file_paths):
                     if signal in exp_signal_list:
-                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
                     elif signal == 'sawteeth':
-                         errors.append(get_sawteeth_error(shot, run_output, saw_file_path, time_begin = time_begin, time_end = time_end))
+                        errors.append(get_sawteeth_error(shot, run_output, saw_file_path, time_begin = time_begin, time_end = time_end))
                     else:
-                         errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                        errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/num_run_series + run_serie*width, errors, width, label=labels_plot[run_serie])
 
             # Add some text for labels, title and custom x-axis tick labels, etc.
             if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
-                ax[icolumns][iraws].set_ylabel('Error [-]')
+                ax[icolumns][iraws].set_ylabel('Error [-]', fontsize = fontsize_ylabel)
             else:
-                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal])
-            ax[icolumns][iraws].set_title(label_signals[signal])
-            ax[icolumns][iraws].set_xticks(x, labels)
-            ax[icolumns][iraws].legend()
+                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal], fontsize = fontsize_ylabel)
+            ax[icolumns][iraws].set_title(label_signals[signal], fontsize = fontsize_title)
+            ax[icolumns][iraws].set_xticks(x, labels, rotation='vertical', fontsize = fontsize_ticks)
+            ax[icolumns][iraws].xaxis.set_tick_params(labelsize = fontsize_ticks)
+            ax[icolumns][iraws].legend(fontsize = fontsize_legend)
 
             fig.tight_layout()
 
@@ -511,20 +579,21 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                     if signal == 'sawteeth':
                         errors.append(get_sawteeth_error(shot_list[shot], run_output, saw_file_paths[shot], time_begin = time_begin, time_end = time_end))
                     elif signal not in exp_signal_list:
-                        errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                        errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
                     else:
-                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/len(shot_list) + shot*width, errors, width, label=shot_list[shot])
 
             # Add some text for labels, title and custom x-axis tick labels, etc.
             if signal in ['te', 'ne', 'ti', 'ni', 'sawteeth']:
-                ax[icolumns][iraws].set_ylabel('Error [-]')
+                ax[icolumns][iraws].set_ylabel('Error [-]', fontsize = fontsize_ylabel)
             else:
-                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal])
-            ax[icolumns][iraws].set_title(label_signals[signal])
-            ax[icolumns][iraws].set_xticks(x, labels_plot)
-            ax[icolumns][iraws].legend()
+                ax[icolumns][iraws].set_ylabel('Distance ' + measure_signals[signal], fontsize = fontsize_ylabel)
+            ax[icolumns][iraws].set_title(label_signals[signal], fontsize = fontsize_title)
+            ax[icolumns][iraws].set_xticks(x, labels_plot, rotation='vertical', fontsize = fontsize_ticks)
+            ax[icolumns][iraws].xaxis.set_tick_params(labelsize = fontsize_ticks)
+            ax[icolumns][iraws].legend(fontsize = fontsize_legend)
 
             fig.tight_layout()
 
@@ -532,9 +601,87 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
 
 
 if __name__ == "__main__":
-    plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper2.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runs_list_show.txt', ['summary.global_quantities.v_loop.value', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 1)
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper2.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.1, plot_type = 2)
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper3.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper3.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne', 'summary.global_quantities.li.value', 'te', 'ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density', 'summary.global_quantities.li.value', 'core_profiles.profiles_1d[].electrons.temperature', 'core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density', 'summary.global_quantities.li.value', 'core_profiles.profiles_1d[].electrons.temperature', 'core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+
+    # TTF presentation
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+
+    plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_debug.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ni'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ni'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
+
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
+
 
     #plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
+    #plot_errors_time('runlist_test.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
     #plot_errors_traces('runlist_test.txt', ['summary.global_quantities.v_loop.value', 'summary.global_quantities.ip.value'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
+    #plot_errors_traces('runlist_paper1.txt', ['vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.04, time_end = 0.3, show_fit = True)
+    #print('for scripting directly')
+    #plot_all_traces('runlist_test.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
+
+    #plot_all_traces('runlist_paper1.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3, show_fit = False)
+    #plot_all_traces('runlist_paper1.txt', ['ne', 'te', 'ti', 'ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
+
+    #plot_all_traces('runlist_paper1.txt', ['ne'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
+    #plot_all_traces('runlist_paper1.txt', ['te'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
+    #plot_all_traces('runlist_paper1.txt', ['ti'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
+    #plot_all_traces('runlist_paper1.txt', ['ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
+
+
+
+
 
 
