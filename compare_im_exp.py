@@ -350,6 +350,7 @@ def get_exp_data(db, shot, run, time_begin, time_end, signals, apply_special_fil
             print('Careful! Generating dummy errors for ' + variable + ' since experimetal errors are not available')
 
         data, errorbar = clean_exp_data(data, errorbar)
+
         if apply_special_filter and variable == 'impurity density':
             data, errorbar = special_filter_errorbars(data, errorbar, variable)
         else:
@@ -388,7 +389,8 @@ def get_closest_times(exp_data, t_cxrs):
         exp_data_new['data'][time_cxrs] = exp_data['data'][time_closest]
         exp_data_new['errorbar'][time_cxrs] = exp_data['errorbar'][time_closest]
 
-        exp_data_new['data'][time_cxrs], exp_data_new['errorbar'][time_cxrs] 
+        #exp_data_new['data'][time_cxrs], exp_data_new['errorbar'][time_cxrs]
+
         mask = exp_data_new['errorbar'][time_cxrs]['y']<exp_data_new['data'][time_cxrs]['y']
         exp_data_new['data'][time_cxrs]['x'] = exp_data_new['data'][time_cxrs]['x'][mask]
         exp_data_new['data'][time_cxrs]['y'] = exp_data_new['data'][time_cxrs]['y'][mask]
@@ -502,13 +504,19 @@ def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model
         plt.show()
 
 
-def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = False):
+def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = False, ytable_final_volume = None):
     error_time = []
     error_time_space_all = []
     for i, time in enumerate(exp_data):
         error_time_space = []
-        for y_fit, y_exp, error_point in zip(ytable_final[i], exp_data[time]['y'], errorbar[time]['y']):
-            error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
+        if not ytable_final_volume:
+            for y_fit, y_exp, error_point in zip(ytable_final[i], exp_data[time]['y'], errorbar[time]['y']):
+                #error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
+                error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point)
+        else:
+            for y_fit, y_exp, y_volume, error_point in zip(ytable_final[i], exp_data[time]['y'], ytable_final_volume[i], errorbar[time]['y']):
+                #error_time_space.append(abs(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
+                error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
 
         if verbose == 2:
             legend_label = get_legend_label(fit_or_model)
@@ -538,7 +546,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
 
     return error_time, error_time_space_all
 
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False):
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, error_type = 'absolute'):
 
     """
     Plots experimental data and model predictions, and calculates errors.
@@ -577,12 +585,19 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
     for variable in all_exp_data:
 
-        if time_begin > time_end:
+        # If there is not enough simulation it should return an agreement of 0, so not valid
+        if time_end - time_begin < 0.01:
             errors[variable] = 0.0
             errors_time[variable] = [0.0]
 
         else:
             exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
+            ytable_final_volume = None
+
+            if error_type == 'relative volume':
+                fit_volume = get_onesig(core_profiles_model,'core_profiles.profiles_1d[].grid.volume',time_begin,time_end=time_end)
+                time_vector_fit = np.asarray(list(fit_volume.keys()))
+                ytable_final_volume = generate_ytable(time_vector_exp, time_vector_fit, fit_volume, exp_data, fit_and_substitute, variable)
 
             fit = get_onesig(core_profiles_model,variable_names[variable][2],time_begin,time_end=time_end)
             time_vector_fit = np.asarray(list(fit.keys()))
@@ -597,15 +612,96 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
                                     title_fontsize, label_fontsize, show_fit = show_fit)
 
             error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, 
-                                                      label, fit_or_model, verbose, show_fit = show_fit)
+                                                      label, fit_or_model, verbose, ytable_final_volume = ytable_final_volume, show_fit = show_fit)
 
             error_variable = sum(error_time)/len(exp_data)
+
             errors[variable] = error_variable
             errors_time[variable] = error_time
 
         print('The error for ' + variable + ' is ' + str(errors[variable]))
 
     return(errors, errors_time)
+
+
+# ------------------------------------ WORK IN PROGRESS ------------------------------
+
+def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, legend_label1 = 'model1', legend_label2 = 'model2', error_type = 'standard'):
+
+    """
+    Plots experimental data and model predictions for two different models. Errors can be calculated with the other function, this is only to plot
+
+    :param db: machine considered
+    :param shot: shot number
+    :param run_exp: experimental run name
+    :param run_model: model run name
+    :param time_begin: start time
+    :param time_end: end time
+    :param signals: list of signal names to plot
+    :param label: label for the plot
+    :param verbose: verbosity level
+    :param fit_or_model: whether to plot fitted data or model data
+    :param apply_special_filter: applies a special filter to the impurity density that tries to avoid clusters with large errorbars
+    :return: list of errors
+    """
+
+    title_fontsize = 17
+    label_fontsize = 15
+    legend_fontsize = 13
+
+    variable_names = get_variable_names_exp(signals)
+
+    if not username: username = getpass.getuser()
+
+    core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp, username = username)
+    core_profiles_model1 = open_and_get_ids(db, shot, 'core_profiles', run_model1, show_fit = show_fit, username = username)
+    core_profiles_model2 = open_and_get_ids(db, shot, 'core_profiles', run_model2, show_fit = show_fit, username = username)
+
+    t_cxrs = get_t_cxrs(core_profiles_exp)
+    t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
+
+    all_exp_data = get_exp_data(db, shot, run_exp, time_begin, time_end, signals, apply_special_filter = apply_special_filter)
+
+    for variable in all_exp_data:
+
+        # If there is not enough simulation it should return an agreement of 0, so not valid
+        exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
+
+        fit1 = get_onesig(core_profiles_model1,variable_names[variable][2],time_begin,time_end=time_end)
+        time_vector_fit1 = np.asarray(list(fit1.keys()))
+        fit2 = get_onesig(core_profiles_model2,variable_names[variable][2],time_begin,time_end=time_end)
+        time_vector_fit2 = np.asarray(list(fit2.keys()))
+
+        # For every timelisce in experiments, remap all the fits on that x and then interpolate. It is necessary if the x coordinate changes in time
+        ytable_final1 = generate_ytable(time_vector_exp, time_vector_fit1, fit1, exp_data, fit_and_substitute, variable)
+        ytable_final1 = scale_model_data(ytable_final1, variable)
+        ytable_final2 = generate_ytable(time_vector_exp, time_vector_fit2, fit2, exp_data, fit_and_substitute, variable)
+        ytable_final2 = scale_model_data(ytable_final2, variable)
+
+        # Plotting routines
+
+        title_variable = get_title_variable(variable)
+
+        for i, time in enumerate(exp_data):
+            legend_label = get_legend_label_experimental(variable)
+            plt.errorbar(exp_data[time]['x'], exp_data[time]['y'], yerr=errorbar[time]['y'], fmt='.', linestyle=' ',
+                     label=legend_label)
+            legend_label = get_legend_label(fit_or_model)
+            plt.plot(exp_data[time]['x'], ytable_final1[i], label=legend_label1)
+            plt.plot(exp_data[time]['x'], ytable_final2[i], label=legend_label2)
+
+            plt.legend(fontsize=legend_fontsize)
+            title = title_variable + ' at t = {time:.3f}'.format(time=time)
+            plt.title(title, fontsize=title_fontsize)
+            plt.xlabel(r'$\rho$ [-]', fontsize=label_fontsize)
+            ylabel_variable = get_label_variable(variable)
+            plt.ylabel(ylabel_variable, fontsize=label_fontsize)
+            plt.xlim((0,1))
+            plt.show()
+
+
+# ------------------------------------
+
 
 
 def get_username_ids_style(run_output, username = None):
@@ -680,9 +776,11 @@ def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_
 
     if show_fit:
         if not backend: backend = get_backend(db, shot, 1 if type(run) is str else run, username=username)
+        #backend = imasdef.HDF5_BACKEND
         data_entry = imas.DBEntry(backend, db, shot, 1 if type(run) is str else run, user_name=username)
     else:
         if not backend: backend = get_backend(db, shot, 2 if type(run) is str else run, username=username)
+        #backend = imasdef.HDF5_BACKEND
         data_entry = imas.DBEntry(backend, db, shot, 2 if type(run) is str else run, user_name=username)
 
     op = data_entry.open()
@@ -702,29 +800,8 @@ def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_
 
 
 if __name__ == "__main__":
-    #plot_exp_vs_model('tcv', 64965, 5, 517, 0.05, 0.15, signals = ['ti', 'ne'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64862, 5, 1903, 0.05, 0.15, signals = ['te', 'ne'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64770, 1, 1, 0.7, 0.9, signals = ['ne'], verbose = 2, fit_or_model = 'fit')
-    #plot_exp_vs_model('tcv', 64965, 6, 'run460_ohmic_predictive2', 0.1, 0.3, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['te', 'ti', 'ne', 'ni'], verbose = 2)
-    #plot_exp_vs_model('tcv', 64965, 5, 'run460_ohmic_predictive2', 0.05, 0.15, signals = ['ne'], verbose = 2, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64965, 6, 'run035_64965_ohmic_predictive', 0.05, 0.15, signals = ['ni'], verbose = 1, fit_or_model = 'Model')
     
-    #plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64954, 3, 'run011_64954_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64958, 3, 'run012_64958_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 64862, 3, 'run013_64862_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 56653, 3, 'run014_56653_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
-
-    #plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model', apply_special_filter = False)
-    #plot_exp_vs_model('tcv', 64954, 3, 'run011_64954_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model', apply_special_filter = False)
-    #plot_exp_vs_model('tcv', 64958, 3, 'run012_64958_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model', apply_special_filter = False)
-    #plot_exp_vs_model('tcv', 64862, 3, 'run013_64862_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model')
-    #plot_exp_vs_model('tcv', 56653, 3, 'run014_56653_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model', apply_special_filter = False)
-
-    plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Fit', show_fit = True)
-    plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Model', show_fit = False)
-    #plot_exp_vs_model('tcv', 64954, 3, 'run011_64954_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Fit', show_fit = True)
+    plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
 
     print('plot and compares experimental data with fits or model')
 
