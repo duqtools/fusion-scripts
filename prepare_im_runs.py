@@ -460,7 +460,7 @@ class IntegratedModellingRuns:
             self.setup_feedback_on_density()
 
         if self.set_sep_boundaries:
-            setup_boundary_values()
+            self.setup_boundary_values()
 
 
         self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, abs(b0), r0)
@@ -860,7 +860,7 @@ class IntegratedModellingRuns:
                 self.boundary_conditions['ti'].append(profile_1d.ions[0].temperature[-1])
                 self.boundary_conditions['ne'].append(profile_1d.electrons.density[-1])
 
-            self.self.boundary_conditions['times'] = core_profiles.time.tolist()
+            self.boundary_conditions['times'] = core_profiles.time.tolist()
 
 
     def get_feedback_on_density_quantities(self):
@@ -877,26 +877,28 @@ class IntegratedModellingRuns:
 
     def setup_boundary_values(self):
 
-        get_boundary_values_quantities()
-        setup_boundary_values_jset()
-        setup_boundary_values_jetto_in()
+        self.get_boundary_values_quantities()
+        self.setup_boundary_values_jset()
+        self.setup_boundary_values_jetto_in()
 
 
     def setup_boundary_values_jetto_in(self):
 
-        modify_jettoin_line(self.run_start, '  NTEB', len(self.bc_te))
-        modify_jettoin_line(self.run_start, '  NTIB', len(self.bc_ti))
-        modify_jettoin_line(self.run_start, '  NDNHB1', len(self.bc_ne))
+        run_name = self.path_baserun
 
-        modify_jettoin_line(self.run_start, '  TEB', self.bc_te)
-        modify_jettoin_line(self.run_start, '  TIB', self.bc_ti)
-        modify_jettoin_line(self.run_start, '  DNHB1', self.bc_ne)
+        modify_jettoin_line(run_name, '  NTEB', len(self.boundary_conditions['te']))
+        modify_jettoin_line(run_name, '  NTIB', len(self.boundary_conditions['ti']))
+        modify_jettoin_line(run_name, '  NDNHB1', len(self.boundary_conditions['ne']))
 
-        modify_jettoin_line(self.run_start, '  TTEB', self.bc_te_times)
-        modify_jettoin_line(self.run_start, '  TTIB', self.bc_ti_times)
-        modify_jettoin_line(self.run_start, '  TDNHB1', self.bc_ne_times)
+        modify_jettoin_line(run_name, '  TEB', self.boundary_conditions['te'])
+        modify_jettoin_line(run_name, '  TIB', self.boundary_conditions['ti'])
+        modify_jettoin_line(run_name, '  DNHB1', self.boundary_conditions['ne'])
 
-        modify_jettoin_line(self.run_start, '  BCINTRHON', '\n')
+        modify_jettoin_line(run_name, '  TTEB', self.boundary_conditions['times'])
+        modify_jettoin_line(run_name, '  TTIB', self.boundary_conditions['times'])
+        modify_jettoin_line(run_name, '  TDNHB1', self.boundary_conditions['times'])
+
+        modify_jettoin_line(run_name, '  BCINTRHON', '\n')
 
 
     def setup_feedback_on_density(self):
@@ -945,17 +947,16 @@ class IntegratedModellingRuns:
 
     def setup_boundary_values_jset(self):
 
-        run_name = self.run_start
-        times, bc_te, bc_ti, bc_ne = get_boundary_values_quantities()
+        run_name = self.path_baserun
 
         panel_name = 'BoundCondPanel.eleTemp'
-        modify_jset_time_list(run_name, panel_name, times, bc_te)
+        modify_jset_time_list(run_name, panel_name, self.boundary_conditions['times'], self.boundary_conditions['te'])
 
         panel_name = 'BoundCondPanel.ionTemp'
-        modify_jset_time_list(run_name, panel_name, times, bc_ti)
+        modify_jset_time_list(run_name, panel_name, self.boundary_conditions['times'], self.boundary_conditions['ti'])
 
         panel_name = 'BoundCondPanel.ionDens[0]'
-        modify_jset_time_list(run_name, panel_name, times, bc_ne)
+        modify_jset_time_list(run_name, panel_name, self.boundary_conditions['times'], self.boundary_conditions['ne'])
 
 
     def modify_jset(self, path, run_name, ids_number, ids_output_number, b0, r0):
@@ -1551,7 +1552,7 @@ def modify_jettosin_time_polygon(path_jetto_sin, time_start, time_end, puff_valu
 
     fields_array = ['  SPEFLX', '  TINFLX']
 
-    times = [time_start, time_start+0.1, time_end]
+    times = [time_start, time_start+0.05, time_end]
     values = [0.0, puff_value, puff_value]
 
     numbers_array = [values, times]
@@ -1971,7 +1972,7 @@ def delete_jset_line(run_name, line_start):
 
         for line in read_data:
             if line.startswith(line_start):
-                read_data.delete(line)
+                read_data.remove(line)
 
     with open(run_name + '/' + 'jetto.jset', 'w') as f:
         for line in read_data:
@@ -2002,7 +2003,7 @@ def modify_jset_line(run_name, line_start, new_content):
             f.writelines(line)
 
 
-def create_jset_time_list(run_name, panel_name):
+def create_jset_time_list(run_name, panel_name, times, values):
 
     # Create a list with the start of the lines and the content to be used by 'modify_jset_line'
     line_start_list = [panel_name + '.option']
@@ -2027,7 +2028,6 @@ def create_jset_time_list(run_name, panel_name):
 def modify_jset_time_list(run_name, panel_name, times, values):
 
     # Delete the old values that might be already there
-
     delete_jset_line(run_name, panel_name)
 
     # Create the list
@@ -2045,31 +2045,46 @@ def modify_jettoin_line(run_name, line_start, new_content):
 
     '''
 
-    with open(run_name + '/' + 'jetto.jset') as f:
+    with open(run_name + '/' + 'jetto.in') as f:
         lines = f.readlines()
+        read_data = []
         for line in lines:
             read_data.append(line)
 
-        if new_content.type == np.array or new_content.type == list:
-            for index, line in enumerate(read_data):
+        if not line_start.endswith('='):
+            num_spaces = len(line_start)
+            line_start = line_start + (11-num_spaces)*' ' + '='
+
+        for index, line in enumerate(read_data):
+            if type(new_content) == float:
+                if line.startswith(line_start):
+                    num_spaces = 1
+                    line_start += '  ' + f'{new_content:.3E}' + ' '*num_spaces + ',' + '\n'
+                    read_data[index] = line_start
+
+            elif type(new_content) == int:
+                if line.startswith(line_start):
+                    num_spaces = 9 - len(str(new_content))
+                    line_start += '  ' + str(new_content) + ' '*num_spaces + ',' + '\n'
+                    read_data[index] = line_start
+
+            elif type(new_content) == np.array or type(new_content) == list:
                 if line.startswith(line_start):
                     for number in new_content:
-                        num_spaces = 9 - len(str(number))
-                        line_start += '  ' + f'{number:E}' + ' '*num_spaces + ','
+                        num_spaces = 1
+                        line_start += '  ' + f'{number:.3E}' + ' '*num_spaces + ','
 
                     line_start += '\n'
-                    read_data[index] = line_start[2:]
-        elif new_content.type == float or new_content.type == int:
-            num_spaces = 9 - len(str(number))
-            line_start += '  ' + f'{number:E}' + ' '*num_spaces + ','
-            read_data[index] = line_start[2:]
-        elif new_content.type == str or new_content.type == np.str:
-            if new_content == '\n':
-                read_data[index] = new_content
-            else:
-                read_data[index] = line_start + new_content
+                    read_data[index] = line_start
 
-    with open(run_name + '/' + 'jetto.jset', 'w') as f:
+            elif type(new_content) == str or type(new_content) == np.str:
+                if line.startswith(line_start):
+                    if new_content == '\n':
+                        read_data[index] = new_content
+                    else:
+                        read_data[index] = line_start + new_content
+
+    with open(run_name + '/' + 'jetto.in', 'w') as f:
         for line in read_data:
             f.writelines(line)
 
@@ -2212,7 +2227,7 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
-def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}):
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps'):
 
     run_number = first_number
     if not misallignements:
@@ -2220,15 +2235,15 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
 
     for shot_number, run_input, run_start, time, misallignement in zip(shot_numbers, runs_input, runs_start, times, misallignements):
         if run_number < 100:
-            run_name = 'run0' + str(run_number) + '_' + str(shot_number) + '_' + 'ohmic_predictive'
+            run_name = 'run0' + str(run_number) + '_' + str(shot_number) + '_' + run_name_end
         else:
-            run_name = 'run' + str(run_number) + '_' + str(shot_number) + '_' + 'ohmic_predictive'
+            run_name = 'run' + str(run_number) + '_' + str(shot_number) + '_' + run_name_end
 
         run_number += 1
 
         json_input['misalignment']['schema'] = misallignement
 
-        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = True, setup_time_polygon_impurities_flag = True, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = False, boundary_conditions = {})
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = True, setup_time_polygon_impurities_flag = True, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
         run_test.setup_create_compare()
 
 
