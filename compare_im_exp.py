@@ -41,6 +41,40 @@ if imas is not None:
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (MIN_IMASAL_VERSION))
 
 
+def input():
+
+    parser = argparse.ArgumentParser(
+        description=
+    """Compare validation metrics from HFPS input / output IDSs, for multiple quantities and runs. Preliminary version, using scripts from D. Yadykin and M. Marin.\n
+    ---
+    Examples:\n
+    python compare_im_exp.py --db tcv --shot 64965 --run_exp 5 --run_model run010_64965_ohmic_predictive --time_begin 0.1 --time_end 0.3 --signals te ne --error_type 'absolute' 
+    python compare_im_exp.py --db tcv --shot 64965 --run_exp 5 --run_model run010_64965_ohmic_predictive --time_begin 0.1 --time_end 0.3 --signals te ne --username = 'g2mmarin' --label = 'QuaLiKiz' --verbose = 0 --fit_or_model 'Model' --show_fit --apply_special_filter --error_type 'absolute'
+    ---
+    """,
+    epilog="",
+    formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument("--db",                             type=str,   default='tcv',                                help="Name of the database with the input data")
+    parser.add_argument("--shot",                           type=int,   default=None,                                 help="Name of the shot with the input data")
+    parser.add_argument("--run_exp",                        type=int,   default=None,                                 help="Name of the run with the input data")
+    parser.add_argument("--run_model",                      type=str,   default=None,                                 help="Name of the run folder with the output run information")
+    parser.add_argument("--signals",     "-s",   nargs='+', type=str,   default=None,                                 help="List of signals to be compared")
+    parser.add_argument("--time_begin",                     type=float, default=None,                                 help="Slice shot file beginning at time (s)")
+    parser.add_argument("--time_end",                       type=float, default=None,                                 help="Slice shot file ending at time (s)")
+    parser.add_argument("--username",                       type=str,   default=None,                                 help="Username of the owner of input IDSs and runs")
+    parser.add_argument("--label",                          type=str,   default=None,                                 help="Label to be put on the plot")
+    parser.add_argument("--verbose",                        type=int,   default=0,                                    help="Verbose option, 2 for profile, 1 time, 0 silent")
+    parser.add_argument("--show_fit",                                   default=False, action='store_true',           help="Shows fit on top of modelling results")
+    parser.add_argument("--error_type",                     type=str,   default='absolute',                           help="Decides which metric to use for the errors")
+    parser.add_argument("--apply_special_filter",                       default=False, action='store_true',           help="Eliminates outliers errors. Or at least tries")
+    parser.add_argument("--fit_or_model",                               default=False, action='store_true',           help="Shows fit instead of modelling results")
+
+    args=parser.parse_args()
+
+    return args
+
+
 def get_title_variable(variable):
     """
     Get the title variable string for a given variable.
@@ -504,19 +538,31 @@ def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model
         plt.show()
 
 
-def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = False, ytable_final_volume = None):
+def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose, show_fit = False, ytable_final_volume = None, error_type = 'absolute'):
     error_time = []
     error_time_space_all = []
     for i, time in enumerate(exp_data):
         error_time_space = []
         if not ytable_final_volume:
             for y_fit, y_exp, error_point in zip(ytable_final[i], exp_data[time]['y'], errorbar[time]['y']):
-                #error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
-                error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point)
+                if error_type == 'absolute':
+                    error_time_space.append(abs(y_fit[0] - y_exp))
+                if error_type == 'relative':
+                    error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
+                if error_type == 'squared':
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point)
+                if error_type == 'difference':
+                    error_time_space.append((y_fit[0] - y_exp) / error_point)
         else:
             for y_fit, y_exp, y_volume, error_point in zip(ytable_final[i], exp_data[time]['y'], ytable_final_volume[i], errorbar[time]['y']):
-                #error_time_space.append(abs(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
-                error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
+                if error_type == 'absolute':
+                    error_time_space.append(abs(y_fit[0] - y_exp) * y_volume[0]/ytable_final_volume[i][-1][0])
+                if error_type == 'relative':
+                    error_time_space.append(abs(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
+                if error_type == 'squared':
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
+                if error_type == 'difference':
+                    error_time_space.append((y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
 
         if verbose == 2:
             legend_label = get_legend_label(fit_or_model)
@@ -594,7 +640,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
             exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
             ytable_final_volume = None
 
-            if error_type == 'relative volume':
+            if 'volume' in error_type:
                 fit_volume = get_onesig(core_profiles_model,'core_profiles.profiles_1d[].grid.volume',time_begin,time_end=time_end)
                 time_vector_fit = np.asarray(list(fit_volume.keys()))
                 ytable_final_volume = generate_ytable(time_vector_exp, time_vector_fit, fit_volume, exp_data, fit_and_substitute, variable)
@@ -611,8 +657,9 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
                 plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
                                     title_fontsize, label_fontsize, show_fit = show_fit)
 
+            error_type_stripped = error_type.split(' ')[0]
             error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, 
-                                                      label, fit_or_model, verbose, ytable_final_volume = ytable_final_volume, show_fit = show_fit)
+                                                      label, fit_or_model, verbose, ytable_final_volume = ytable_final_volume, show_fit = show_fit, error_type = error_type_stripped)
 
             error_variable = sum(error_time)/len(exp_data)
 
@@ -624,9 +671,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     return(errors, errors_time)
 
 
-# ------------------------------------ WORK IN PROGRESS ------------------------------
-
-def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, legend_label1 = 'model1', legend_label2 = 'model2', error_type = 'standard'):
+def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, legend_label1 = 'model1', legend_label2 = 'model2', error_type = 'absolute'):
 
     """
     Plots experimental data and model predictions for two different models. Errors can be calculated with the other function, this is only to plot
@@ -698,10 +743,6 @@ def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin,
             plt.ylabel(ylabel_variable, fontsize=label_fontsize)
             plt.xlim((0,1))
             plt.show()
-
-
-# ------------------------------------
-
 
 
 def get_username_ids_style(run_output, username = None):
@@ -798,13 +839,35 @@ def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_
 
     return ids
 
+def main():
+
+    args = input()
+
+    errors, errors_time = plot_exp_vs_model(
+        db=args.db,
+        shot=args.shot,
+        run_exp=args.run_exp,
+        run_model=args.run_model,
+        signals=args.signals,
+        time_begin=args.time_begin,
+        time_end=args.time_end,
+        username=args.username,
+        label=args.label,
+        verbose=args.verbose,
+        show_fit=args.show_fit,
+        error_type=args.error_type,
+        apply_special_filter=args.apply_special_filter,
+        fit_or_model=args.fit_or_model
+    )
+
 
 if __name__ == "__main__":
-    
-    plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ne','te','ti','ni'], verbose = 1, fit_or_model = 'Model')
+
+    main()
+
+    #plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Fit', show_fit = True)
+    #compare_exp_vs_models('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 'run105_64965_ohmic_predictive', 0.04, 0.33, signals = ['te', 'ne', 'ti', 'ni'], legend_label1 = 'QuaLiKiz', legend_label2 = 'TGLF')
 
     print('plot and compares experimental data with fits or model')
-
-
 
 

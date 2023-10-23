@@ -129,7 +129,10 @@ keys_list['time_trace'] = [
     'equilibrium.time_slice[].global_quantities.ip', 
     'equilibrium.time_slice[].global_quantities.li_3', 
     'equilibrium.time_slice[].global_quantities.beta_pol', 
-    'equilibrium.time_slice[].global_quantities.beta_tor', 
+    'equilibrium.time_slice[].global_quantities.beta_tor',
+    'equilibrium.time_slice[].global_quantities.psi_boundary',
+    'equilibrium.time_slice[].global_quantities.q_axis',
+    'equilibrium.time_slice[].global_quantities.q_95',
     'equilibrium.time_slice[].global_quantities.magnetic_axis.r', 
     'equilibrium.time_slice[].global_quantities.magnetic_axis.z'
 ]
@@ -471,7 +474,7 @@ def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
 
     return data_dict
 
-def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=None, tid=None, interpolate=False):
+def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=None, tid=None, interpolate=False, backend = 'hdf5'):
 
     out_data_dict = {}
     ids_dict = {}
@@ -488,7 +491,7 @@ def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=No
     xt_fields = []
     # Loop over IDSs, extracted all requested signals from each
     for idsname, siglist in ids_dict.items():
-        ids = getShotFile(idsname, shot, runid, user, db)
+        ids = getShotFile(idsname, shot, runid, user, db, backend = backend)
         for signame in siglist:
             raw_data_dict = get_onesig(ids, signame, time_begin, time_end, sid, tid)
             ytable = None
@@ -865,7 +868,24 @@ def absolute_error(data1, data2):
 def relative_error(data1, data2):
     return np.abs(2*(data1 - data2)/(data1 + data2))
 
+def squared_error(data1, data2):
+    return np.abs(2*(data1 - data2)*(data1 - data2)/(data1 + data2))
+
+def difference_error(data1, data2):
+    return 2*(data1 - data2)/(data1 + data2)
+
 #Testing with errors weighted on the volume
+def absolute_error_volume(data1, volume1, data2, volume2):
+    volumes = (volume1+volume2)/2
+    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
+    distances = np.asarray([])
+    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
+        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)*volume/volume_normalization)))
+
+    distances = distances.reshape(np.shape(volumes))
+
+    return distances
+
 def relative_error_volume(data1, volume1, data2, volume2):
     volumes = (volume1+volume2)/2
     volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
@@ -876,6 +896,29 @@ def relative_error_volume(data1, volume1, data2, volume2):
     distances = distances.reshape(np.shape(volumes))
 
     return distances
+
+def squared_error_volume(data1, volume1, data2, volume2):
+    volumes = (volume1+volume2)/2
+    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
+    distances = np.asarray([])
+    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
+        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
+
+    distances = distances.reshape(np.shape(volumes))
+
+    return distances
+
+def difference_error_volume(data1, volume1, data2, volume2):
+    volumes = (volume1+volume2)/2
+    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
+    distances = np.asarray([])
+    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
+        distances = np.hstack((distances, (2*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
+
+    distances = distances.reshape(np.shape(volumes))
+
+    return distances
+
 
 def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
     out_dict = {}
@@ -894,8 +937,19 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                         var = signame+".absolute_error"
                     elif error_type == 'relative':
                         var = signame+".relative_error"
+                    elif error_type == 'squared':
+                        var = signame+".squared_error"
+                    elif error_type == 'difference':
+                        var = signame+".difference_error"
+
+                    elif error_type == 'absolute volume':
+                        var = signame+".absolute_error_volume"
                     elif error_type == 'relative volume':
                         var = signame+".relative_error_volume"
+                    elif error_type == 'squared volume':
+                        var = signame+".squared_error_volume"
+                    elif error_type == 'difference volume':
+                        var = signame+".difference_error_volume"
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
@@ -905,8 +959,20 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                         comp_data = absolute_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'relative':
                         comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'squared':
+                        comp_data = squared_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'difference':
+                        comp_data = sifference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+
+                    elif error_type == 'absolute volume':
+                        comp_data = absolute_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'relative volume':
-                        comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = relative_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'squared volume':
+                        comp_data = squared_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                    elif error_type == 'difference volume':
+                        comp_data = difference_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
@@ -1200,7 +1266,7 @@ def compute_user_string_functions(data_dict, signal_operations, standardized=Fal
 
     return data_dict
 
-def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None):
+def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None, backend = None):
 
     jruns_home = os.environ['JRUNS']
     current_user = os.getlogin()
@@ -1252,7 +1318,10 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
             jloc = jruns_home.replace(current_user, requested_user)
             user = jloc + '/' + '/'.join(stag[2:-3])
 
-        onedict = get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=time_end, sid=sid, tid=tid, interpolate=standardize)
+        backend_run = None
+        if not backend: backend_run = get_backend(db, shot, runid, username=user)
+
+        onedict = get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=time_end, sid=sid, tid=tid, interpolate=standardize, backend = backend_run)
         if ii == ref_idx:
             ref_tag = tag
         if "time_signals" in onedict:
@@ -1295,7 +1364,7 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
 
 ####### SCRIPT #######
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5'):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1303,7 +1372,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
     if error_type == 'relative volume':
         signals.append('core_profiles.profiles_1d[].grid.volume')
 
-    data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis)
+    data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis, backend = backend)
 
     if plot:
         if standardize:
@@ -1354,10 +1423,17 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
 def main():
 
     args = input()
+
+    if args.backend == 'hdf5':
+        args.backend = imas.imasdef.HDF5_BACKEND
+    elif args.backend == 'mdsplus':
+        args.backend = imas.imasdef.MDSPLUS_BACKEND
+
     do_plot = not args.calc_only
     time_averages, time_error_averages, profiles_error_averages = compare_runs(
         signals=args.signal,
         idslist=args.ids,
+        backend=args.backend,
         time_begin=args.time_begin,
         time_end=args.time_end,
         time_basis=args.time_out,

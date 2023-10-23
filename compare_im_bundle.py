@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
 import jetto_tools
 import duqtools
+import argparse
 
 import compare_im_runs
 import prepare_im_input
@@ -22,46 +23,39 @@ Shows the comparison for multiple signals, multiple plots and multiple settings
 Example of usage:
 
 plot_errors('/afs/eufus.eu/user/g/user/mylist.txt', ['summary.global_quantities.v_loop.value', 'core_profiles.profiles_1d[].q', 'summary.global_quantities.li.value', 'te'], plot_type = 1, time_begin = 0.02, time_end = 0.1)
-
-
-'''
+plot_all_traces('runlist_paper1.txt', ['ne', 'te', 'ti', 'ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33)
 
 '''
+
 def input():
 
     parser = argparse.ArgumentParser(
         description=
-"""Compare validation metrics from HFPS input / output IDSs. Preliminary version, adapted from scripts from D. Yadykin and M. Marin.\n
----
-Examples:\n
-python compare_im_bundle.py --
----
-plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False, error_type = 'absolute')
-""",
+    """Compare validation metrics from HFPS input / output IDSs, for multiple quantities and runs. Preliminary version, using scripts from D. Yadykin and M. Marin.\n
+    ---
+    Examples:\n
+    python compare_im_bundle.py --filename runlist.txt --signals te ne --time_begin 0.1 --time_end 0.3 --correct_sign --show_fit --error_type 'absolute' --plot_traces
+    python compare_im_bundle.py --filename runlist.txt --signals te ne --time_begin 0.1 --time_end 0.3 --error_type 'absolute'
+    ---
+    """,
     epilog="",
     formatter_class=argparse.RawTextHelpFormatter)
 
-    parser.add_argument("--file_name",  "-f",              type=str,   default="mdsplus", choices=["mdsplus", "hdf5"],       help="Name of the file with the run information")
-    parser.add_argument("--signals",      "-s",   nargs='+', type=str,   default=None,                                         help="List of signals to be compared")
-    parser.add_argument("--time_begin",                  type=float, default=None,                                         help="Slice shot file beginning at time (s)")
-    parser.add_argument("--time_end",                    type=float, default=None,                                         help="Slice shot file ending at time (s)")
-    parser.add_argument("--plot_type",         nargs='*', type=float, default=None,                                         help="Plot time. 1 groups sensitivities, 2 groups shots")
-    parser.add_argument("--username",       , nargs='+', type=str,   default=None,                                         help="Username of the owner of input IDSs and runs")
-    parser.add_argument("--correct_sign",                            default=False, action='store_true',                   help="Flag to correct sign if opposite for exp and model")
-    parser.add_argument("--steady_state",                               default=False, action='store_true',                   help="Flag to identify that the input is a single point")
-    parser.add_argument("--uniform",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
-    parser.add_argument("--signal_operator",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
-    parser.add_argument("--show_fit",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
-    parser.add_argument("--error_type",                                 default=False, action='store_true',                   help="Toggle interpolation to uniform time and radial basis, uses first run as basis unless steady state flag is on")
+    parser.add_argument("--filename",   "-f",               type=str,   default=None,                                 help="Name of the file with the run information")
+    parser.add_argument("--signals",     "-s",   nargs='+', type=str,   default=None,                                 help="List of signals to be compared")
+    parser.add_argument("--time_begin",                     type=float, default=None,                                 help="Slice shot file beginning at time (s)")
+    parser.add_argument("--time_end",                       type=float, default=None,                                 help="Slice shot file ending at time (s)")
+    parser.add_argument("--plot_type",                      type=int,   default=2,                                    help="Plot time. 1 groups sensitivities, 2 groups shots")
+    parser.add_argument("--username",                       type=str,   default=None,                                 help="Username of the owner of input IDSs and runs")
+    parser.add_argument("--correct_sign",                               default=False, action='store_true',           help="Flag to correct sign if opposite for exp and model")
+    parser.add_argument("--signal_operations",              type=str,   default=None,                                 help="Performs operations between signals")
+    parser.add_argument("--show_fit",                                   default=False, action='store_true',           help="Shows fit instead of modelling results")
+    parser.add_argument("--error_type",                     type=str,   default='absolute',                           help="Decides which metric to use for the errors")
+    parser.add_argument("--plot_traces",                                default=False, action='store_true',           help="Plot only the errors or the full trace")
 
     args=parser.parse_args()
 
     return args
-'''
-
-
-
-
 
 
 fontsize_title = 20
@@ -178,7 +172,7 @@ def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_e
     return errors
 
 
-def get_exp_error_time(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False):
+def get_exp_error_time(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False, error_type = 'absolute'):
 
     summary = compare_im_exp.open_and_get_ids(db, shot, 'summary', run_output)
     if not time_begin:
@@ -186,7 +180,7 @@ def get_exp_error_time(shot, run_input, run_output, signal, time_begin = None, t
     if not time_end:
         time_end = max(summary.time)
 
-    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit)
+    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit, error_type = error_type)
 
     errors_time = []
     #revert to list format
@@ -209,10 +203,10 @@ def get_sawteeth_error(shot, run_output, saw_file_path = None, time_begin = None
         print('Returning 0. Careful! Does not mean perfect agreement!')
         return(0)
 
-    return plot_inversion_radius(db, shot, run_output, saw_file_path, time_start = time_begin, time_end = time_end)
+    return plot_inversion_radius(db, shot, run_output, saw_file_path, time_start = time_begin, time_end = time_end, error_type = error_type)
 
 
-def plot_errors_time(filename, signals, time_begin = None, time_end = None):
+def plot_errors_time(filename, signals, time_begin = None, time_end = None, error_type = 'absolute'):
 
     '''
 
@@ -241,7 +235,7 @@ def plot_errors_time(filename, signals, time_begin = None, time_end = None):
 
         errors = []
         for run_output in runs_output:
-            errors.append(get_exp_error_time(shot, run_exp, run_output, signal, time_begin = time_begin, time_end = time_end)[0])
+            errors.append(get_exp_error_time(shot, run_exp, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
 
         for error, legend_label in zip(errors, labels):
             ax[icolumns][iraws].plot(time_vector_exp, error, label=legend_label)
@@ -273,10 +267,11 @@ def separate_signal_lists(signals):
     return exp_signals, mod_signals
 
 
-def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False, error_type = 'absolute'):
+def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False, error_type = 'absolute', error_type_exp = None):
 
     # Ideally want to use the other functions, but I cannot figure out how to use the axes that way...
     if not username: username=getpass.getuser()
+    if not error_type_exp: error_type_exp = error_type
     exp_signals, mod_signals = separate_signal_lists(signals)
     fig, ax, num_columns = create_subplots(signals)
 
@@ -336,9 +331,9 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
 
             errors = []
             for run_output in runs_output:
-                errors.append(get_exp_error_time(shot, run_exp, run_output, signame, time_begin = time_begin, time_end = time_end)[0])
+                errors.append(get_exp_error_time(shot, run_exp, run_output, signame, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
                 if show_fit:
-                    errors.append(get_exp_error_time(shot, run_exp, run_output, signame, time_begin = time_begin, time_end = time_end, show_fit = show_fit)[0])
+                    errors.append(get_exp_error_time(shot, run_exp, run_output, signame, time_begin = time_begin, time_end = time_end, show_fit = show_fit, error_type = error_type_exp)[0])
 
             for error, legend_label in zip(errors, labels):
                 ax[icolumns][iraws].plot(time_vector_exp, error, label=legend_label)
@@ -516,8 +511,9 @@ def get_input_run_lists(filename):
     return num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot
 
 
-def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1, error_type = 'absolute'):
+def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1, error_type = 'absolute', error_type_exp = None):
 
+    if not error_type_exp: error_type_exp = error_type
     num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot = get_input_run_lists(filename)
 
     # Pre deciding the structure of the plots with the various possibilities of len(signal_list)
@@ -542,7 +538,7 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                 #if signal not in exp_signal_list:
                 for shot, run_input, run_output, saw_file_path in zip(shot_list, run_input_list, run_output_list[:,run_serie], saw_file_paths):
                     if signal in exp_signal_list:
-                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
+                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp)[0])
                     elif signal == 'sawteeth':
                         errors.append(get_sawteeth_error(shot, run_output, saw_file_path, time_begin = time_begin, time_end = time_end))
                     else:
@@ -581,7 +577,7 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                     elif signal not in exp_signal_list:
                         errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
                     else:
-                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
+                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp)[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/len(shot_list) + shot*width, errors, width, label=shot_list[shot])
 
@@ -600,88 +596,35 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
         plt.show()
 
 
+def main():
+
+    args = input()
+
+    if not args.plot_traces:
+        plot_errors(
+            filename=args.filename,
+            signal_list=args.signals,
+            time_begin=args.time_begin,
+            time_end=args.time_end,
+            plot_type=args.plot_type,
+            error_type=args.error_type
+        )
+    else:
+        plot_all_traces(
+            filename=args.filename,
+            signals=args.signals,
+            time_begin=args.time_begin,
+            time_end=args.time_end,
+            username=args.username,
+            show_fit=args.show_fit,
+            error_type=args.error_type,
+            correct_sign=args.correct_sign,
+            signal_operations=args.signal_operations
+        )
+
+
 if __name__ == "__main__":
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runs_list_show.txt', ['summary.global_quantities.v_loop.value', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.09, plot_type = 1)
 
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper2.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.1, plot_type = 2)
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper3.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper3.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['sawteeth', 'ne', 'summary.global_quantities.li.value', 'te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne', 'summary.global_quantities.li.value', 'te', 'ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density', 'summary.global_quantities.li.value', 'core_profiles.profiles_1d[].electrons.temperature', 'core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density', 'summary.global_quantities.li.value', 'core_profiles.profiles_1d[].electrons.temperature', 'core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-
-    # TTF presentation
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-
-    plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_debug.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ni'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'absolute')
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF2.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF3.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.density'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].electrons.temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['core_profiles.profiles_1d[].ion[0].temperature'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_TTF.txt', ['ni'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative volume')
-
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ne'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['summary.global_quantities.li.value'], time_begin = 0.04, time_end = 0.33, plot_type = 2, error_type = 'relative')
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['te'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-    #plot_errors('/afs/eufus.eu/user/g/g2mmarin/public/scripts/runlist_paper4.txt', ['ti'], time_begin = 0.04, time_end = 0.33, plot_type = 2)
-
-
-    #plot_errors_time('runlist_time_errors.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
-    #plot_errors_time('runlist_test.txt', ['ne', 'te'], time_begin = 0.04, time_end = 0.33)
-    #plot_errors_traces('runlist_test.txt', ['summary.global_quantities.v_loop.value', 'summary.global_quantities.ip.value'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
-    #plot_errors_traces('runlist_paper1.txt', ['vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.04, time_end = 0.3, show_fit = True)
-    #print('for scripting directly')
-    #plot_all_traces('runlist_test.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3)
-
-    #plot_all_traces('runlist_paper1.txt', ['ne', 'vloop', 'li3', 'core_profiles.profiles_1d[].electrons.temperature'], correct_sign=True, time_begin = 0.1, time_end = 0.3, show_fit = False)
-    #plot_all_traces('runlist_paper1.txt', ['ne', 'te', 'ti', 'ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-
-    #plot_all_traces('runlist_paper1.txt', ['ne'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    #plot_all_traces('runlist_paper1.txt', ['te'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    #plot_all_traces('runlist_paper1.txt', ['ti'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-    #plot_all_traces('runlist_paper1.txt', ['ni'], correct_sign=True, time_begin = 0.04, time_end = 0.33, show_fit = True)
-
-
-
-
+    main()
 
 
