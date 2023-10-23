@@ -51,7 +51,8 @@ if imas is not None:
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
 import sys
-sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
+username = getpass.getuser()
+sys.path.insert(0, '/afs/eufus.eu/user/g/' + username + '/python_tools/jetto-pythontools')
 
 import jetto_tools
 #print(jetto_tools.__version__)
