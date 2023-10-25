@@ -64,7 +64,7 @@ def input():
     parser.add_argument("--time_end",                       type=float, default=None,                                 help="Slice shot file ending at time (s)")
     parser.add_argument("--username",                       type=str,   default=None,                                 help="Username of the owner of input IDSs and runs")
     parser.add_argument("--label",                          type=str,   default=None,                                 help="Label to be put on the plot")
-    parser.add_argument("--verbose",                        type=int,   default=0,                                    help="Verbose option, 2 for profile, 1 time, 0 silent")
+    parser.add_argument("--verbose",                        type=int,   default=1,                                    help="Verbose option, 2 for profile, 1 time, 0 silent")
     parser.add_argument("--show_fit",                                   default=False, action='store_true',           help="Shows fit on top of modelling results")
     parser.add_argument("--error_type",                     type=str,   default='absolute',                           help="Decides which metric to use for the errors")
     parser.add_argument("--apply_special_filter",                       default=False, action='store_true',           help="Eliminates outliers errors. Or at least tries")

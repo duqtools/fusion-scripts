@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 import sys
-sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
-import jetto_tools
-import duqtools
+#sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
+#import jetto_tools
+#import duqtools
 import argparse
 
 import compare_im_runs
