@@ -51,14 +51,17 @@ if imas is not None:
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
 import sys
-username = getpass.getuser()
-sys.path.insert(0, '/afs/eufus.eu/user/g/' + username + '/python_tools/jetto-pythontools')
+username_jetto_tools = getpass.getuser()
+sys.path.insert(0, '/afs/eufus.eu/user/g/' + username_jetto_tools + '/python_tools/jetto-pythontools')
 
-import jetto_tools
+try:
+    import jetto_tools
+except ImportError:
+    warnings.warn("Jetto tools not available. Please check that they are installed in /python_tools/jetto-pythontools or change the previous sys path in the code", UserWarning)
+
 #print(jetto_tools.__version__)
 #print(jetto_tools.__file__)
-
-import duqtools
+#import duqtools
 
 import copy
 
