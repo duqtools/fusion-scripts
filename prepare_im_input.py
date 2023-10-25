@@ -68,7 +68,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     #average, rebase, nbi_heating, flat_q_profile = False, False, False, False
     #correct_Zeff, set_boundaries, correct_boundaries, adding_early_profiles = False, False, False, False
     username = getpass.getuser()
-    backend = get_backend(db, shot, run_input)
+    backend = get_backend(db, shot, run_input, username = username)
 
     # Checking that everything is fine with the input options
     if json_input['zeff profile'] not in json_input['zeff profile options']:
@@ -307,7 +307,6 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
 
     if json_input['instructions']['flat q profile']:
-
         use_flat_q_profile(db, shot, run_input, run_start, backend = backend)
         print('setting a flat q profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
@@ -1758,11 +1757,6 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend=None
 
     data_entry.close()
 
-    #print(db, shot, run, run_target, username, backend)
-    #print('created')
-    #exit()
-
-
 
 # ------------------------- EXTRA TOOLS TO MODIFY IDSS ------------------------------
 
@@ -2622,6 +2616,7 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
         z = time_slice.profiles_2d[0].z
 
         icol_max, irow_max = find_extrema_psi(psi, r, z, cut_size = 5)
+
         col_max_psi = psi[:,irow_max]
         row_max_psi = psi[icol_max,:]
 
@@ -2629,6 +2624,7 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
         imin_left_row, imin_right_row = find_left_and_right_minimas(row_max_psi, irow_max)
 
         psi_compare = build_skeleton_new_psi(psi, imin_left_row, imin_right_row, imin_left_col, imin_right_col)
+
         z_interpolation, r_interpolation = create_r_z_interp(r, z, imin_left_col, imin_right_col, imin_left_row, imin_right_row)
 
         interp_func = RectBivariateSpline(r_interpolation, z_interpolation, psi_compare, kx=3, ky=3, s=1e-4)
@@ -2639,6 +2635,7 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
                 psi_new[i,j] = interp_func(r_point, z_point)[0, 0]
 
         equilibrium_new.time_slice[index].profiles_2d[0].psi = psi_new
+
 
     data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
@@ -2846,6 +2843,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
         electron_temperatures = ids_dict['profiles_1d']['electrons.temperature']
         new_profiles = np.where(ion_temperatures > 1, ion_temperatures, electron_temperatures)
         ids_dict['profiles_1d'][key] = new_profiles
+
 
     e_temperatures = ids_dict['profiles_1d']['electrons.temperature']
     i_temperatures = ids_dict['profiles_1d']['t_i_average']
@@ -3137,6 +3135,68 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     print('Set boundaries completed')
 
 
+def update_times_profile(old_times, new_times, old_profile):
+
+    # Rebasing one profile in time
+
+    # Getting the dimensions of the radial grid and time
+    x_dim = np.shape(old_profile)[1]
+    time_dim = np.shape(old_profile)[0]
+    profiles_new = np.asarray([])
+
+    if x_dim != 0:
+        for i in np.arange(x_dim):
+            if np.size(profiles_new) != 0:
+                profiles_new = np.hstack((profiles_new, fit_and_substitute(old_times, new_times, old_profile[:,i])))
+            else:
+                profiles_new = fit_and_substitute(old_times, new_times, old_profile[:,i])
+
+        profiles_new = profiles_new.reshape(x_dim, len(new_times))
+        profiles_new = np.transpose(np.asarray(profiles_new))
+
+    else:
+        for i in np.arange(time_dim):
+            profiles_new = np.hstack((profiles_new, np.asarray([])))
+
+        profiles_new = np.asarray(profiles_new)
+
+    return profiles_new
+
+def update_q(q_old, rho, volumes, ips, b0s):
+
+    # Changing the q profile both in equilibrium and core profiles
+    q_new = []
+    for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
+        # This normalizes the q95 from the extrapolation to the value expected from the other parameters
+        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+        q95 = abs(q_slice[index_rho_95])
+
+        q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
+        #q_slice = q_slice/q95*q95_norm
+
+        # This makes it easier to decide a value for q[0]. Could live it as an option.
+        mult_slice = abs(mult/q_slice[0])
+        q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
+        q_new.append(q_slice)
+
+    return np.asarray(q_new)
+
+def update_q_hollowness(q_old, rho, mult):
+
+    # Changing the q profile both in equilibrium and core profiles
+    q_new = []
+    for q_slice, rho_slice in zip(q_old, rho):
+        q_flat = q_slice[-1]
+        if q_flat > 0:
+            q_slice_new = q_flat-abs(mult)*(q_flat-1)*(1-rho_slice)*(1-rho_slice)
+        else:
+            q_slice_new = q_flat+abs(mult)*(q_flat+1)*(1-rho_slice)*(1-rho_slice)
+
+        q_new.append(q_slice_new)
+
+    return np.asarray(q_new)
+
+
 def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
     '''
@@ -3155,64 +3215,32 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
     ids_dict = ids_data.ids_dict
 
     equilibrium = open_and_get_ids(db, shot, run, 'equilibrium')
-    r0, b0s = equilibrium.vacuum_toroidal_field.r0, equilibrium.vacuum_toroidal_field.b0
+    r0, b0s_eq = equilibrium.vacuum_toroidal_field.r0, equilibrium.vacuum_toroidal_field.b0
     mu0 = 4*np.pi*1.0e-7
-    volumes, ips = [], []
+
+    volumes_eq, ips_eq = [], []
     for slice_eq in equilibrium.time_slice:
-        volumes.append(slice_eq.profiles_1d.volume[-1])
-        ips.append(slice_eq.global_quantities.ip)
+        volumes_eq.append(slice_eq.profiles_1d.volume[-1])
+        ips_eq.append(slice_eq.global_quantities.ip)
 
-    volumes, ips = np.asarray(volumes), np.asarray(ips)
-    q_old, rho = ids_dict['profiles_1d']['profiles_1d.q'], ids_dict['profiles_1d']['profiles_1d.rho_tor_norm']
+    volumes_eq, ips_eq = np.asarray(volumes_eq), np.asarray(ips_eq)
 
-    # Changing the q profile both in equilibrium and core profiles
-    q_new = []
-    for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
-        # This normalizes the q95 from the extrapolation to the value expected from the other parameters
-        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
-        q95 = abs(q_slice[index_rho_95])
+    time_core_profiles = ids_dict['time']['core_profiles']
+    time_equilibrium = ids_dict['time']['equilibrium']
 
-        q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
-        #q_slice = q_slice/q95*q95_norm
+    volumes_cp = fit_and_substitute(time_equilibrium, time_core_profiles, volumes_eq)
+    ips_cp = fit_and_substitute(time_equilibrium, time_core_profiles, ips_eq)
+    b0s_cp = fit_and_substitute(time_equilibrium, time_core_profiles, b0s_eq)
 
-        #print(q95_norm/q95)
-        #print(q95)
-        #print(q95_norm)
+    q_old_eq, rho_eq = ids_dict['profiles_1d']['profiles_1d.q'], ids_dict['profiles_1d']['profiles_1d.rho_tor_norm']
+    q_old_cp, rho_cp = ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']
 
-        # This makes it easier to decide a value for q[0]. Could live it as an option.
-        mult_slice = abs(mult/q_slice[0])
-        q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
-        q_new.append(q_slice)
-
-    ids_dict['profiles_1d']['profiles_1d.q'] = np.asarray(q_new)
-
-    q_old, rho = ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']
-
-    # Changing the q profile both in equilibrium and core profiles
-    q_new = []
-    for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
-        # This normalizes the q95 from the extrapolation to the value expected from the other parameters
-        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
-        q95 = abs(q_slice[index_rho_95])
-
-        q95_norm = abs(2*volume*b0/(np.pi*mu0*r0*r0*ip))
-        #q_slice = q_slice/q95*q95_norm
-
-        # This makes it easier to decide a value for q[0]. Could live it as an option.
-        mult_slice = abs(mult/q_slice[0])
-        q_slice = q_slice*((1-mult_slice)/0.95*rho_slice + mult_slice)
-        q_new.append(q_slice)
-
-    ids_dict['profiles_1d']['q'] = np.asarray(q_new)
-
-    '''
-    q_new = []
-    for q_slice, rho_slice in zip(ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']):
-        q_slice = q_slice*((1-mult)/0.95*rho_slice + mult)
-        q_new.append(q_slice)
-
-    ids_dict['profiles_1d']['q'] = np.asarray(q_new)
-    '''
+    if mult > 0:
+        ids_dict['profiles_1d']['profiles_1d.q'] = update_q(q_old_eq, rho_eq, volumes_eq, ips_eq, b0s_eq, mult)
+        ids_dict['profiles_1d']['q'] = update_q(q_old_cp, rho_cp, volumes_cp, ips_cp, b0s_cp, mult)
+    else:  #Could use 0 to set a flat q profile
+        ids_dict['profiles_1d']['profiles_1d.q'] = update_q_hollowness(q_old_eq, rho_eq, mult)
+        ids_dict['profiles_1d']['q'] = update_q_hollowness(q_old_cp, rho_cp, mult)
 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
@@ -3243,7 +3271,7 @@ def correct_ion_temperature(db, shot, run, run_target, db_target = None, shot_ta
 
         ion_temperatures = ids_dict['profiles_1d'][key]
         electron_temperatures = ids_dict['profiles_1d']['electrons.temperature']
-        new_profiles = np.where(ion_temperatures > 1, ion_temperatures, electron_temperatures)
+        new_profiles = np.where(ion_temperatures != 0, ion_temperatures, electron_temperatures)
         new_profiles = np.where(new_profiles/electron_temperatures < ratio_limit, new_profiles, ratio_limit*electron_temperatures)
         ids_dict['profiles_1d'][key] = new_profiles
 
@@ -3348,8 +3376,11 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     new_times_core_profiles = old_times_core_profiles[:]
 
     # Go backwards with the same timestep
-    while new_times_core_profiles[0] > 0.01:
-        new_times_core_profiles = np.insert(new_times_core_profiles, 0, new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0]))
+    while new_times_core_profiles[0] > 0.001:
+        if (new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0])) > 0:
+            new_times_core_profiles = np.insert(new_times_core_profiles, 0, new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0]))
+        else:
+            new_times_core_profiles = np.insert(new_times_core_profiles, 0, 0.001)
 
     len_added_times = len(new_times_core_profiles) - len(old_times_core_profiles)
 
