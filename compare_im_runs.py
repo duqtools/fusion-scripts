@@ -130,6 +130,7 @@ keys_list['time_trace'] = [
     'equilibrium.time_slice[].global_quantities.li_3', 
     'equilibrium.time_slice[].global_quantities.beta_pol', 
     'equilibrium.time_slice[].global_quantities.beta_tor',
+    'equilibrium.time_slice[].global_quantities.psi_axis',
     'equilibrium.time_slice[].global_quantities.psi_boundary',
     'equilibrium.time_slice[].global_quantities.q_axis',
     'equilibrium.time_slice[].global_quantities.q_95',
@@ -209,6 +210,7 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     parser.add_argument("--correct_sign",                            default=None, action='store_true',                    help="Allows to change the sign of the output if it is not identical to reference run")
     parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                         help="Specify functions of multiple variables")
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
+    parser.add_argument("--keep_op_signals",                         default=False, action='store_true',                   help="Keeps the signals used for the operation")
     args=parser.parse_args()
 
     return args
@@ -1168,10 +1170,18 @@ def standardize_basis_vectors(raw_dict, ref_tag, time_basis=None):
 
     return std_dict
 
-def compute_user_string_functions(data_dict, signal_operations, standardized=False):
+def compute_user_string_functions(data_dict, signal_operations, standardized=False, keep_op_signals = False):
+
+    taglist = []
+    for key in data_dict:
+        if not key.endswith('t') and not key.endswith('x') and not key == 'time_signals' and not key == 'profile_signals':
+            for tag in data_dict[key]:
+                if tag not in taglist:
+                    taglist.append(tag)
+
 
     # Oof, this is not the safest implementation (due to eval) but it takes a lot to make this both general and clean
-    if not standarized:          # This is for the raw vector branch
+    if not standardized:          # This is for the raw vector branch
         for tag in taglist:
             for op, sigopvec in signal_operations.items():
 
@@ -1238,35 +1248,54 @@ def compute_user_string_functions(data_dict, signal_operations, standardized=Fal
 
             # Substituting the key since otherwise it will think that the dots define attributes
             sfunc = op.replace('.', '_')
+            # Removing parenthesis
+            sfunc = sfunc.replace('[', '')
+            sfunc = sfunc.replace(']', '')
             nkey_list = []
             fready = True
             fradial = False
+
+            for key in sigopvec:
+                if key not in data_dict:
+                    fready = False
+                if key+".x" in data_dict:
+                    fradial = True
+
             for key in sigopvec:
                 new_key = key.replace('.', '_')
+                new_key = new_key.replace('[', '')
+                new_key = new_key.replace(']', '')
+
                 nkey_list.append(new_key)
-                if new_key not in out_dict:
-                    fready = False
-                if key+".x" in out_dict:
-                    fradial = True
 
             if fready:
                 operation_dict = {}
                 for tag in taglist:
-                    for new_key in nkey_list:
+                    for new_key, key in zip(nkey_list, sigopvec):
                         globals()[new_key] = copy.deepcopy(data_dict[key][tag])
                     op_result = eval(sfunc)
                     operation_dict[tag] = op_result
                     for new_key in nkey_list:
                         del globals()[new_key]
                 data_dict[op] = copy.deepcopy(operation_dict)
+                data_dict[op + '.t'] = copy.deepcopy(data_dict[sigopvec[0] + '.t'])
                 if fradial:
                     data_dict["profile_signals"].append(op)
+                    data_dict[op + '.x'] = copy.deepcopy(data_dict[sigopvec[0] + '.x'])
                 else:
                     data_dict["time_signals"].append(op)
 
+    if not keep_op_signals:
+        for signal in sigopvec:
+            del data_dict[signal]
+            del data_dict[signal + '.t']
+            if signal + '.x' in data_dict:
+                del data_dict[signal + '.x']
+
+
     return data_dict
 
-def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None, backend = None):
+def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operations=None, correct_sign=False, reference_index=None, standardize=False, time_basis=None, backend = None, keep_op_signals = False):
 
     jruns_home = os.environ['JRUNS']
     current_user = os.getlogin()
@@ -1291,6 +1320,7 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
             for ii in empty_vars[::-1]:
                 del sigop_vars[ii]
             for var in sigop_vars:
+                if not sigvec: sigvec = []
                 if var not in sigvec:
                     sigvec.append(var)
             sigopdict[sigop] = sigop_vars
@@ -1358,13 +1388,13 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
         # Applies user-defined string operations to single and/or multiple variables
         # NOTE: this implementation uses eval to process string operations!!! BE CAREFUL!!!
         if fops:
-            out_dict = compute_user_string_functions(out_dict, sigopdict, standardized=standardize)
+            out_dict = compute_user_string_functions(out_dict, sigopdict, standardized=standardize, keep_op_signals = keep_op_signals)
 
     return out_dict, ref_tag
 
 ####### SCRIPT #######
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5'):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1372,7 +1402,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
     if error_type == 'relative volume':
         signals.append('core_profiles.profiles_1d[].grid.volume')
 
-    data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis, backend = backend)
+    data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis, backend = backend, keep_op_signals = keep_op_signals)
 
     if plot:
         if standardize:
@@ -1445,7 +1475,8 @@ def main():
         correct_sign=args.correct_sign,
         steady_state=args.steady_state,
         uniform=args.uniform,
-        signal_operations=args.function
+        signal_operations=args.function,
+        keep_op_signals=args.keep_op_signals
     )
     # Arugments not used: save_plot, version
 
