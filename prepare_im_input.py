@@ -2636,7 +2636,6 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
 
         equilibrium_new.time_slice[index].profiles_2d[0].psi = psi_new
 
-
     data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
@@ -3188,9 +3187,9 @@ def update_q_hollowness(q_old, rho, mult):
     for q_slice, rho_slice in zip(q_old, rho):
         q_flat = q_slice[-1]
         if q_flat > 0:
-            q_slice_new = q_flat-abs(mult)*(q_flat-1)*(1-rho_slice)*(1-rho_slice)
+            q_slice_new = q_flat-(abs(mult)*(q_flat-1))+abs(mult)*(q_flat-1)*rho_slice*rho_slice
         else:
-            q_slice_new = q_flat+abs(mult)*(q_flat+1)*(1-rho_slice)*(1-rho_slice)
+            q_slice_new = q_flat+(abs(mult)*(q_flat-1))-abs(mult)*(q_flat+1)*rho_slice*rho_slice
 
         q_new.append(q_slice_new)
 
