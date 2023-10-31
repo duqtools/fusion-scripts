@@ -90,6 +90,9 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if not equilibrium:
         equilibrium = open_and_get_ids(db, shot, run_input, 'equilibrium', backend = backend)
 
+    generate_density_feedback(db, shot, run_input, run_input+1, json_input['generate density feedback'], backend = backend)
+    run_input = run_input+1
+
     if json_input['misalignment']['flag']:
         correct_misalligned_hrts(db, shot, run_input, run_input+1, json_input['misalignment']['schema'], backend = backend)
         run_input = run_input+1
@@ -2002,7 +2005,9 @@ def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = Non
     for i in np.arange(len(time)):
         rho_profile = ids_dict['profiles_1d']['grid.rho_tor_norm'][i]
         #zeff = np.average(ids_dict['profiles_1d']['zeff'][i])
-        ids_dict['profiles_1d']['zeff'][i] = zeff_param-(zeff_param-1)/2*np.exp(-(5*rho_profile-5)**2)
+        #ids_dict['profiles_1d']['zeff'][i] = zeff_param-(zeff_param-1)/2*np.exp(-(5*rho_profile-5)**2)  This one was uncommented but I do not think is the right way
+        zeff = np.average(ids_dict['profiles_1d']['zeff'][i])
+        ids_dict['profiles_1d']['zeff'][i] = zeff-(zeff-1)/2*np.exp(-(zeff_param*rho_profile-zeff_param)**2)
 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
@@ -2627,7 +2632,11 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
 
         z_interpolation, r_interpolation = create_r_z_interp(r, z, imin_left_col, imin_right_col, imin_left_row, imin_right_row)
 
+        #interp_func = RectBivariateSpline(r[:,0], z[0,:], psi_compare)
         interp_func = RectBivariateSpline(r_interpolation, z_interpolation, psi_compare, kx=3, ky=3, s=1e-4)
+
+        #interp_func = RegularGridInterpolator((r_interpolation, z_interpolation), psi_compare, method = 'linear')
+        #psi_new = interp_func((r, z))
 
         psi_new = np.zeros(psi.shape)
         for r_row, z_row, i in zip(r, z, np.arange(psi.shape[0])):
@@ -2635,6 +2644,38 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
                 psi_new[i,j] = interp_func(r_point, z_point)[0, 0]
 
         equilibrium_new.time_slice[index].profiles_2d[0].psi = psi_new
+
+    
+    '''
+    psi_new = np.zeros(psi.shape)
+    for psi_row, r_row, z_row, i in zip(psi, r, z, np.arange(psi.shape[0])):
+        for psi_point, r_point, z_point, j in zip(psi_row, r_row, z_row, np.arange(psi.shape[1])):
+            is_core = (i > imin_left_row and i < imin_right_row) and (i > imin_left_col and i < imin_right_col)
+            is_boundary = (i == 0) or (i == psi.shape[0]) or (j == 0) or (j == psi.shape[1])
+            print(is_core, is_boundary)
+
+            if is_core or is_boundary:
+                psi_new[i,j] = interp_func(r_point, z_point)[0, 0]
+                #print(psi_new[i,j])
+            else:
+                psi_new[i,j] = psi_point
+
+    R, Z = np.meshgrid(r, z)
+    #plt.figure(figsize=(8, 6))  # Adjust the figure size as needed
+    plt.subplot(1,2,1)
+    #plt.imshow(psi, cmap='viridis')
+    levels = np.linspace(1.15, 1.25, 26)
+    plt.contourf(r,z,psi_new,levels = levels)
+    plt.colorbar(label='Psi')
+    plt.subplot(1,2,2)
+    plt.contourf(r,z,psi,levels = levels)
+    plt.colorbar(label='Psi')
+    plt.xlabel('R')
+    plt.ylabel('Z')
+    plt.title('Colormap Plot of Psi')
+    plt.show()
+
+    '''
 
     data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
@@ -3189,7 +3230,7 @@ def update_q_hollowness(q_old, rho, mult):
         if q_flat > 0:
             q_slice_new = q_flat-(abs(mult)*(q_flat-1))+abs(mult)*(q_flat-1)*rho_slice*rho_slice
         else:
-            q_slice_new = q_flat+(abs(mult)*(q_flat-1))-abs(mult)*(q_flat+1)*rho_slice*rho_slice
+            q_slice_new = q_flat-(abs(mult)*(q_flat+1))+abs(mult)*(q_flat+1)*rho_slice*rho_slice
 
         q_new.append(q_slice_new)
 
@@ -3342,6 +3383,88 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     ids_data.fill_ids_struct()
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
+
+
+def generate_density_feedback(db, shot, run, run_target, option, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = [], backend = None):
+
+    '''
+
+    Inserts time_slices at the beginning of core_profiles, to try to model the early stages.
+    No normalization to energy diamagnetic is done right now. Agreement with the profiles is not always great, so need to think what to do there
+    For now a flat te profile is imposed at 0.01, using the last boundary value.
+
+    '''
+
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = username
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
+
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
+    ids_dict = ids_data.ids_dict
+
+    x_dim = np.shape(ids_dict['profiles_1d']['grid.rho_tor_norm'])[1]
+    old_times_core_profiles = ids_dict['time']['core_profiles']
+    old_times_summary = ids_dict['time']['summary']
+
+    new_rho = np.arange(0,1,1/x_dim)
+
+    # When measurement for the density are available and line averaged density is not, the line averaged density is corrected instead of just extrapolated.
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles')
+
+    experimental_densities = []
+    for profile_1d in core_profiles.profiles_1d:
+        experimental_densities.append(profile_1d.electrons.density_fit.measured)
+
+    experimental_densities = np.asarray(experimental_densities)
+
+    # Summary and core profile do not have the same time trace.
+    # Need to build the line averaged density in the core profile time trace and the proxy in the summary time trace.
+    # Actually, I will build 3 proxys for electrons.density_thermal, electrons.density, ion[0].density
+    line_averaged_proxy, line_average_measured_point = {}, {}
+    for variable in ['electrons.density_thermal', 'electrons.density', 'ion[0].density']:
+        line_averaged_proxy[variable] = []
+        for i in range(len(ids_dict['profiles_1d'][variable])):
+            new_dens = fit_and_substitute(ids_dict['profiles_1d']['grid.rho_tor_norm'][i], new_rho, ids_dict['profiles_1d'][variable][i])
+            line_averaged_proxy[variable].append(np.sum(new_dens)/x_dim)
+            
+        # Modifying here the line averaged density at the beginning to correlate it to the first measured boundary value
+        # Just setting a low value not to risk a too high puff immediately at the beginning of the simulation
+        #line_averaged_proxy[variable] = np.insert(line_averaged_proxy[variable], 0, ids_dict['profiles_1d']['electrons.density'][0][-1]*0.5)
+        f_space = interp1d(old_times_core_profiles, line_averaged_proxy[variable])
+        line_average_measured_point[variable] = f_space(0.1)
+
+    line_averaged_proxy['electrons.density_fit.measured'] = []
+    for experimental_density in experimental_densities:
+        line_averaged_proxy['electrons.density_fit.measured'].append(np.sum(experimental_density[experimental_density>0])/len(experimental_density[experimental_density>0]))
+
+    line_averaged_proxy_summary_time = {}
+    for variable in ['electrons.density_thermal', 'electrons.density', 'ion[0].density', 'electrons.density_fit.measured']:
+        line_averaged_proxy_summary_time[variable] = fit_and_substitute(old_times_core_profiles, old_times_summary, line_averaged_proxy[variable])
+
+    # Will still try to generate reasonable data if the data is not available in the original IDS
+    if len(ids_dict['traces']['line_average.n_e.value']) == 0:
+        ids_dict['traces']['line_average.n_e.value'] = []
+        for i in range(len(old_times_summary)):
+            if option == 'fit':
+                ids_dict['traces']['line_average.n_e.value'].append(line_averaged_proxy_summary_time['electrons.density'][i])
+            elif option == 'exp':
+                ids_dict['traces']['line_average.n_e.value'].append(line_averaged_proxy_summary_time['electrons.density_fit.measured'][i])
+            else:
+                print('Option for the density feedback not recognized. Aborting')
+                exit()
+        print('Careful! Generating the data for the line averaged density')
+        ids_dict['traces']['line_average.n_e.value'] = np.asarray(ids_dict['traces']['line_average.n_e.value'])
+    else:
+        for i in range(i_time_over_0_1):
+            ids_dict['traces']['line_average.n_e.value'][i] = ids_dict['traces']['line_average.n_e.value'][i_time_over_0_1]*line_averaged_proxy_summary_time['electrons.density'][i]/line_average_measured_point['electrons.density']
+
+    ids_data.ids_dict = ids_dict
+    ids_data.fill_ids_struct()
+
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
+
 
 def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, extra_early_options = [], backend = None):
 
@@ -3566,11 +3689,15 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     # Summary and core profile do not have the same time trace.
     # Need to build the line averaged density in the core profile time trace and the proxy in the summary time trace.
     # Actually, I will build 3 proxys for electrons.density_thermal, electrons.density, ion[0].density
+    new_rho = np.arange(0,1,1/x_dim)
+
     line_averaged_proxy, line_average_measured_point = {}, {}
     for variable in ['electrons.density_thermal', 'electrons.density', 'ion[0].density']:
         line_averaged_proxy[variable] = []
         for i in range(len(ids_dict['profiles_1d'][variable])):
-            line_averaged_proxy[variable].append(np.sum(ids_dict['profiles_1d'][variable][i])/x_dim)
+            new_dens = fit_and_substitute(ids_dict['profiles_1d']['grid.rho_tor_norm'][i], new_rho, ids_dict['profiles_1d'][variable][i])
+            line_averaged_proxy[variable].append(np.sum(new_dens)/x_dim)
+            #line_averaged_proxy[variable].append(np.sum(ids_dict['profiles_1d'][variable][i])/x_dim)
 
         # Modifying here the line averaged density at the beginning to correlate it to the first measured boundary value
         # Just setting a low value not to risk a too high puff immediately at the beginning of the simulation
@@ -3590,6 +3717,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
         print('Careful! Generating the data for the line averaged density')
         ids_dict['traces']['line_average.n_e.value'] = np.asarray(ids_dict['traces']['line_average.n_e.value'])
     else:
+        plt.plot(old_times_summary, ids_dict['traces']['line_average.n_e.value'], label = 'before')
         for i in range(i_time_over_0_1):
             ids_dict['traces']['line_average.n_e.value'][i] = ids_dict['traces']['line_average.n_e.value'][i_time_over_0_1]*line_averaged_proxy_summary_time['electrons.density'][i]/line_average_measured_point['electrons.density']
 
