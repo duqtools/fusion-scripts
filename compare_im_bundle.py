@@ -480,13 +480,14 @@ def get_input_run_lists(filename):
     labels_plot = lines[0][:-1].split('|')
 
     for line in lines[1:]:
+        line = line.rstrip()
         shot, run_input, *runs_output = line.split(' ')
         shot_list.append(int(shot))
         run_input_list.append(int(run_input))
         # Want to compare multiple series of runs to check which one is better
         # If the last element of the split is a path, that will be the path for the math file of the sawteeth analysis
         # Being the last value the string has a /n as last character. It is removed by [:-1]
-        candidate_saw_path = Path(runs_output[-1][:-1])
+        candidate_saw_path = Path(runs_output[-1])
         if not candidate_saw_path.is_file():
             num_run_series = len(runs_output)
             for run_output in runs_output:
@@ -589,7 +590,10 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             ax[icolumns][iraws].set_title(label_signals[signal], fontsize = fontsize_title)
             ax[icolumns][iraws].set_xticks(x, labels_plot, rotation='vertical', fontsize = fontsize_ticks)
             ax[icolumns][iraws].xaxis.set_tick_params(labelsize = fontsize_ticks)
-            ax[icolumns][iraws].legend(fontsize = fontsize_legend)
+            if len(shot_list) < 5:
+                ax[icolumns][iraws].legend(fontsize = fontsize_legend)
+            else:
+                ax[icolumns][iraws].legend().set_visible(False)
 
             fig.tight_layout()
 
