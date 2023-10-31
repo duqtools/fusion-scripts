@@ -5,6 +5,7 @@ import re
 import copy
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.integrate   import cumtrapz
 #import matplotlib
 #matplotlib.use('Qt5Agg')
 from matplotlib import pyplot as plt
@@ -211,6 +212,7 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                         help="Specify functions of multiple variables")
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
     parser.add_argument("--keep_op_signals",                         default=False, action='store_true',                   help="Keeps the signals used for the operation")
+    parser.add_argument("--integrate",                               default=False, action='store_true',                   help="Integrates the requested signal")
     args=parser.parse_args()
 
     return args
@@ -304,6 +306,8 @@ def get_label_variable(variable):
         ylabel = [r'$l_{i3}$ ','[-]']
     elif 'summary.global_quantities.energy_diamagnetic.value' in variable:
         ylabel = [r'$W_{dia}$ ','[J]']
+    elif 'summary.global_quantities.energy_thermal.value' in variable:
+        ylabel = [r'$W_{thermal}$ ','[J]']
     elif 'summary.global_quantities.v_loop.value' in variable:
         ylabel = [r'$V_{loop}$ ','[V]']
 
@@ -620,7 +624,10 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
                 next(ax._get_lines.prop_cycler)
 
             for run in interpolated_data[signame]:
-                run_label = create_run_label(interpolated_data[signame], run)
+                #This is used to set the run labels. Should work most of the timems with the new version
+                first_run = None
+                if 'run' not in run: first_run = run
+                run_label = create_run_label(interpolated_data[signame], run, first_run=first_run)
                 ax.plot(interpolated_data[signame+".t"], interpolated_data[signame][run].flatten(), label=run_label)
             ax.set_xlabel("time [s]", fontsize = fontsize_labels)
             ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
@@ -1172,13 +1179,7 @@ def standardize_basis_vectors(raw_dict, ref_tag, time_basis=None):
 
 def compute_user_string_functions(data_dict, signal_operations, standardized=False, keep_op_signals = False):
 
-    taglist = []
-    for key in data_dict:
-        if not key.endswith('t') and not key.endswith('x') and not key == 'time_signals' and not key == 'profile_signals':
-            for tag in data_dict[key]:
-                if tag not in taglist:
-                    taglist.append(tag)
-
+    taglist = get_taglist(data_dict)
 
     # Oof, this is not the safest implementation (due to eval) but it takes a lot to make this both general and clean
     if not standardized:          # This is for the raw vector branch
@@ -1394,7 +1395,27 @@ def generate_data_tables(run_tags, signals, time_begin, time_end, signal_operati
 
 ####### SCRIPT #######
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False):
+def get_taglist(data_dict):
+
+    taglist = []
+    for key in data_dict:
+        if not key.endswith('t') and not key.endswith('x') and not key == 'time_signals' and not key == 'profile_signals':
+            for tag in data_dict[key]:
+                if tag not in taglist:
+                    taglist.append(tag)
+
+    return taglist
+
+
+def get_siglist(data_dict):
+    siglist = []
+    for key in data_dict:
+        if not key.endswith('t') and not key.endswith('x') and not key == 'time_signals' and not key == 'profile_signals':
+            siglist.append(key)
+
+    return siglist
+
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1403,6 +1424,15 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
         signals.append('core_profiles.profiles_1d[].grid.volume')
 
     data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis, backend = backend, keep_op_signals = keep_op_signals)
+
+    if integrate and standardize:
+        siglist = get_siglist(data_dict)
+        taglist = get_taglist(data_dict)
+        for sig in siglist:
+            for tag in taglist:
+                data_dict[sig][tag] = cumtrapz(data_dict[sig][tag], x=data_dict[sig + '.t'])
+            data_dict[sig + '.t'] = (data_dict[sig + '.t'][:-1] + data_dict[sig + '.t'][1:]) / 2.0
+
 
     if plot:
         if standardize:
@@ -1476,7 +1506,8 @@ def main():
         steady_state=args.steady_state,
         uniform=args.uniform,
         signal_operations=args.function,
-        keep_op_signals=args.keep_op_signals
+        keep_op_signals=args.keep_op_signals,
+        integrate=args.integrate
     )
     # Arugments not used: save_plot, version
 
