@@ -409,6 +409,8 @@ class IntegratedModellingRuns:
             self.time_start = min(time_cp)
         elif self.time_start == 'equilibrium':
             self.time_start = min(time_eq)
+        elif self.time_start == 'equilibrium + 1':
+            self.time_start = time_eq[1]
 
         if self.time_end == 100:
             self.time_end = min(max(time_eq), max(time_cp))
