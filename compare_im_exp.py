@@ -373,6 +373,14 @@ def get_exp_data(db, shot, run, time_begin, time_end, signals, apply_special_fil
 
     for variable in variable_names:
         data = get_onesig(core_profiles_exp, variable_names[variable][0], time_begin, time_end=time_end)
+        #get_onesig gets the closest time. If the closest time is before the requested minimum, should be removed
+        mask = []
+        for time_stamp in data:
+            if float(time_stamp) < time_begin:
+                mask.append(time_stamp)
+
+        for time_stamp in mask:
+                del data[time_stamp]
         #errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
         try:
             errorbar = get_onesig(core_profiles_exp, variable_names[variable][1], time_begin, time_end=time_end)
@@ -862,12 +870,10 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
 
-    #plot_exp_vs_model('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 0.04, 0.33, signals = ['ni'], verbose = 1, fit_or_model = 'Fit', show_fit = True)
-    #compare_exp_vs_models('tcv', 64965, 3, 'run010_64965_ohmic_predictive', 'run105_64965_ohmic_predictive', 0.04, 0.33, signals = ['te', 'ne', 'ti', 'ni'], legend_label1 = 'QuaLiKiz', legend_label2 = 'TGLF')
-
     print('plot and compares experimental data with fits or model')
+
+
 
 
