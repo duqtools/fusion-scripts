@@ -3407,6 +3407,7 @@ def generate_density_feedback(db, shot, run, run_target, option, db_target = Non
     x_dim = np.shape(ids_dict['profiles_1d']['grid.rho_tor_norm'])[1]
     old_times_core_profiles = ids_dict['time']['core_profiles']
     old_times_summary = ids_dict['time']['summary']
+    i_time_over_0_1 = np.argmax(old_times_summary>0.1)
 
     new_rho = np.arange(0,1,1/x_dim)
 
