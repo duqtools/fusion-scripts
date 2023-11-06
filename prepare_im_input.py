@@ -3202,7 +3202,7 @@ def update_times_profile(old_times, new_times, old_profile):
 
     return profiles_new
 
-def update_q(q_old, rho, volumes, ips, b0s):
+def update_q(q_old, rho, volumes, ips, b0s, mult):
 
     # Changing the q profile both in equilibrium and core profiles
     q_new = []
