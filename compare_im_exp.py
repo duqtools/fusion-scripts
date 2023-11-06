@@ -558,7 +558,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
                 if error_type == 'relative':
                     error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
                 if error_type == 'squared':
-                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point)
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point*error_point)
                 if error_type == 'difference':
                     error_time_space.append((y_fit[0] - y_exp) / error_point)
         else:
@@ -568,7 +568,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
                 if error_type == 'relative':
                     error_time_space.append(abs(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
                 if error_type == 'squared':
-                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point*error_point) * y_volume[0]/ytable_final_volume[i][-1][0])
                 if error_type == 'difference':
                     error_time_space.append((y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
 

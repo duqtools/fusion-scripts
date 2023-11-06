@@ -881,7 +881,7 @@ def squared_error(data1, data2):
     return np.abs(2*(data1 - data2)*(data1 - data2)/(data1 + data2))
 
 def difference_error(data1, data2):
-    return 2*(data1 - data2)/(data1 + data2)
+    return 2*(np.abs(data1) - np.abs(data2))/np.abs(data1 + data2)
 
 #Testing with errors weighted on the volume
 def absolute_error_volume(data1, volume1, data2, volume2):
@@ -922,7 +922,7 @@ def difference_error_volume(data1, volume1, data2, volume2):
     volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
     distances = np.asarray([])
     for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, (2*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
+        distances = np.hstack((distances, (2*(np.abs(dat1) - np.abs(dat2))/np.abs(dat1 + dat2)*volume/volume_normalization)))
 
     distances = distances.reshape(np.shape(volumes))
 
