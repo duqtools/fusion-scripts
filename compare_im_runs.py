@@ -500,6 +500,12 @@ def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=No
         ids = getShotFile(idsname, shot, runid, user, db, backend = backend)
         for signame in siglist:
             raw_data_dict = get_onesig(ids, signame, time_begin, time_end, sid, tid)
+            mask_time_keys = []
+            for time_key in raw_data_dict.keys():
+                if float(time_key) < time_begin:
+                    mask_time_keys.append(time_key)
+            for time_key in mask_time_keys:
+                del raw_data_dict[time_key]
             ytable = None
             new_x = None
             new_t = np.array([])
@@ -971,7 +977,7 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                     elif error_type == 'squared':
                         comp_data = squared_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'difference':
-                        comp_data = sifference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = difference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
 
                     elif error_type == 'absolute volume':
                         comp_data = absolute_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
