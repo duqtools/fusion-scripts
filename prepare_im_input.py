@@ -3202,8 +3202,9 @@ def update_times_profile(old_times, new_times, old_profile):
 
     return profiles_new
 
-def update_q(q_old, rho, volumes, ips, b0s, mult):
+def update_q(q_old, rho, volumes, ips, b0s, r0, mult):
 
+    mu0 = 4*np.pi*1.0e-7
     # Changing the q profile both in equilibrium and core profiles
     q_new = []
     for q_slice, rho_slice, volume, ip, b0 in zip(q_old, rho, volumes, ips, b0s):
@@ -3276,8 +3277,8 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
     q_old_cp, rho_cp = ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']
 
     if mult > 0:
-        ids_dict['profiles_1d']['profiles_1d.q'] = update_q(q_old_eq, rho_eq, volumes_eq, ips_eq, b0s_eq, mult)
-        ids_dict['profiles_1d']['q'] = update_q(q_old_cp, rho_cp, volumes_cp, ips_cp, b0s_cp, mult)
+        ids_dict['profiles_1d']['profiles_1d.q'] = update_q(q_old_eq, rho_eq, volumes_eq, ips_eq, b0s_eq, r0, mult)
+        ids_dict['profiles_1d']['q'] = update_q(q_old_cp, rho_cp, volumes_cp, ips_cp, b0s_cp, r0, mult)
     else:  #Could use 0 to set a flat q profile
         ids_dict['profiles_1d']['profiles_1d.q'] = update_q_hollowness(q_old_eq, rho_eq, mult)
         ids_dict['profiles_1d']['q'] = update_q_hollowness(q_old_cp, rho_cp, mult)
