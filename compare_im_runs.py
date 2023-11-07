@@ -213,6 +213,7 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
     parser.add_argument("--keep_op_signals",                         default=False, action='store_true',                   help="Keeps the signals used for the operation")
     parser.add_argument("--integrate",                               default=False, action='store_true',                   help="Integrates the requested signal")
+    parser.add_argument("--labels",            nargs='+', type=str,  default=None,                                         help="Labels to be used for the runs")
     args=parser.parse_args()
 
     return args
@@ -337,7 +338,8 @@ def get_label_variable(variable):
         return variable
 
 
-fontsize_labels = 14
+fontsize_labels = 17
+fontsize_legend = 12
 legend_location_gifs = 'upper right' #Keeping the legend in the same place for the gifs
 
 
@@ -542,7 +544,7 @@ def get_onedict(sigvec, user, db, shot, runid, time_begin, time_end=None, sid=No
 
     return out_data_dict
 
-def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
+def plot_traces(plot_data, plot_vars=None, single_time_reference=False, labels=None):
     signal_list = plot_data["time_signals"] if "time_signals" in plot_data else keys_list['time_trace']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -575,27 +577,35 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False):
                     linestyle = '--'
                     linecolor = 'k'
 
-                run_label = create_run_label(pdata, run, first_run)
+                run_label = create_run_label(pdata, run, first_run=first_run, labels=labels)
                 ax.plot(xdata, ydata, label=run_label, c=linecolor, ls=linestyle)
             ax.set_xlabel("time [s]", fontsize = fontsize_labels)
             ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
-            ax.legend(loc='best')
+            ax.legend(loc='best', fontsize = fontsize_legend)
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
             plt.close(fig)
 
-def create_run_label(pdata, run, first_run = False):
+def create_run_label(pdata, run, first_run = False, labels=None):
 
-    if len(pdata) == 2 and (first_run != run):
-        run_label = 'Integrated modelling prediction'
-    elif first_run == run:
+    run_label=None
+    if labels:
+        for label in labels:
+            if isolate_run_name(run) in label:
+                run_label = label.replace(isolate_run_name(run), '')
+
+    if first_run == run:
         run_label = 'Experimental measurement'
 
-    if ':' in list(pdata.keys())[0]:
-        run_label = isolate_run_name(run)
+    if not run_label:
+        if len(pdata) == 2 and (first_run != run):
+            run_label = 'Integrated modelling prediction'
 
-    if len(pdata) != 2:
-        run_label = isolate_run_name(run)
+        if ':' in list(pdata.keys())[0]:
+            run_label = isolate_run_name(run)
+
+        if len(pdata) != 2:
+            run_label = isolate_run_name(run)
 
     return run_label
 
@@ -617,7 +627,7 @@ def isolate_run_name(run):
     return run_label
 
 
-def plot_interpolated_traces(interpolated_data, plot_vars=None):
+def plot_interpolated_traces(interpolated_data, plot_vars=None, labels=None):
     signal_list = interpolated_data["time_signals"] if "time_signals" in interpolated_data else keys_list['time_trace']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -630,19 +640,20 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None):
                 next(ax._get_lines.prop_cycler)
 
             for run in interpolated_data[signame]:
-                #This is used to set the run labels. Should work most of the timems with the new version
+                #This is used to set the run labels. Should work most of the times with the new jintrac version
                 first_run = None
                 if 'run' not in run: first_run = run
-                run_label = create_run_label(interpolated_data[signame], run, first_run=first_run)
+                run_label = create_run_label(interpolated_data[signame], run, first_run=first_run, labels=labels)
                 ax.plot(interpolated_data[signame+".t"], interpolated_data[signame][run].flatten(), label=run_label)
+
             ax.set_xlabel("time [s]", fontsize = fontsize_labels)
             ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
-            ax.legend(loc='best')
+            ax.legend(loc='best', fontsize = fontsize_legend)
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
             plt.close(fig)
 
-def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
+def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False, labels = None):
     signal_list = plot_data["profile_signals"] if "profile_signals" in plot_data else keys_list['profiles_1d']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -712,13 +723,13 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
                 if run == first_run and single_time_reference:
                     linestyle = '--'
                     linecolor = 'k'
-                pp = ax.plot(pdata[run][0]["rho"], pdata[run][0]["data"], label=run, c=linecolor, ls=linestyle)
+                pp = ax.plot(pdata[run][0]["rho"], pdata[run][0]["data"], label=create_run_label(pdata, run, first_run=first_run, labels=labels), c=linecolor, ls=linestyle)
                 for tidx in range(len(pdata[run])):
                     ymin = np.nanmin([ymin, np.nanmin(pdata[run][tidx]["data"])]) if ymin is not None else np.nanmin(pdata[run][tidx]["data"])
                     ymax = np.nanmax([ymax, np.nanmax(pdata[run][tidx]["data"])]) if ymax is not None else np.nanmax(pdata[run][tidx]["data"])
                 plot_list[run] = pp[0]
 
-            ax.legend(loc=legend_location_gifs)
+            ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
 
             # putting limits on x axis since it is a trigonometry function (0,2)
 
@@ -752,13 +763,14 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False):
             # good practice to close the plt object.
             plt.close()
 
-def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
+def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
     signal_list = interpolated_data["profile_signals"] if "profile_signals" in interpolated_data else keys_list['profiles_1d']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
     for signame in signal_list:
         first_run = None
         tvec = None
+
         if signame in interpolated_data:
 
             print("Plotting %s" % (signame))
@@ -777,13 +789,16 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None):
             plot_list = {}
 
             for run in interpolated_data[signame]:
-                pp = ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][0], label=create_run_label(interpolated_data[signame], run))
+                #This is used to set the run labels. Should work most of the times with the new jintrac version
+                if 'run' not in run: first_run = run
+
+                pp = ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][0], label=create_run_label(interpolated_data[signame], run, first_run=first_run, labels=labels))
                 for tidx in range(len(interpolated_data[signame+".t"])):
                     ymin = np.nanmin([ymin, np.nanmin(interpolated_data[signame][run][tidx])]) if ymin is not None else np.nanmin(interpolated_data[signame][run][tidx])
                     ymax = np.nanmax([ymax, np.nanmax(interpolated_data[signame][run][tidx])]) if ymax is not None else np.nanmax(interpolated_data[signame][run][tidx])
                 plot_list[run] = pp[0]
 
-            ax.legend(loc=legend_location_gifs)
+            ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
 
             # putting limits on x axis since it is a trigonometry function (0,2)
 
@@ -928,7 +943,7 @@ def difference_error_volume(data1, volume1, data2, volume2):
     volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
     distances = np.asarray([])
     for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, (2*(np.abs(dat1) - np.abs(dat2))/np.abs(dat1 + dat2)*volume/volume_normalization)))
+        distances = np.hstack((distances, (2*(np.abs(dat1) - np.abs(dat2))/(np.abs(dat1) + np.abs(dat2))*volume/volume_normalization)))
 
     distances = distances.reshape(np.shape(volumes))
 
@@ -977,7 +992,7 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                     elif error_type == 'squared':
                         comp_data = squared_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'difference':
-                        comp_data = difference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = sifference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
 
                     elif error_type == 'absolute volume':
                         comp_data = absolute_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
@@ -1421,7 +1436,7 @@ def get_siglist(data_dict):
 
     return siglist
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, labels = None):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1446,14 +1461,14 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
                 data_dict_no_vol = copy.deepcopy(data_dict)
                 del data_dict_no_vol['core_profiles.profiles_1d[].grid.volume']
 
-                plot_interpolated_traces(data_dict_no_vol)
-                plot_gif_interpolated_profiles(data_dict_no_vol)
+                plot_interpolated_traces(data_dict_no_vol, labels = labels)
+                plot_gif_interpolated_profiles(data_dict_no_vol, labels = labels)
             else:
-                plot_interpolated_traces(data_dict)
-                plot_gif_interpolated_profiles(data_dict)
+                plot_interpolated_traces(data_dict, labels = labels)
+                plot_gif_interpolated_profiles(data_dict, labels = labels)
         else:
-            plot_traces(data_dict, single_time_reference=steady_state)
-            plot_gif_profiles(data_dict, single_time_reference=steady_state)
+            plot_traces(data_dict, single_time_reference=steady_state, labels = labels)
+            plot_gif_profiles(data_dict, single_time_reference=steady_state, labels = labels)
 
     time_averages = print_time_traces(data_dict, inverted_layout=standardize)
     time_error_averages = {}
@@ -1465,7 +1480,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
         time_error_dict = perform_time_trace_analysis(data_dict, **options)
 
         if plot:
-            plot_interpolated_traces(time_error_dict)
+            plot_interpolated_traces(time_error_dict, labels=labels)
 
         options = {"average_error": True, "error_type": error_type}
 
@@ -1475,9 +1490,8 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
             del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume']
             del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume.t']
 
-
         if plot:
-            plot_interpolated_traces(profile_error_dict)
+            plot_interpolated_traces(profile_error_dict, labels=labels)
 
         time_error_averages = print_time_trace_errors(time_error_dict)
         profile_error_averages = print_profile_errors(profile_error_dict)
@@ -1513,7 +1527,8 @@ def main():
         uniform=args.uniform,
         signal_operations=args.function,
         keep_op_signals=args.keep_op_signals,
-        integrate=args.integrate
+        integrate=args.integrate,
+        labels=args.labels
     )
     # Arugments not used: save_plot, version
 
