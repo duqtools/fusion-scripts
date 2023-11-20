@@ -277,9 +277,10 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
 
     db, shot, run_exp, labels, runs_output = read_file_time_dep(filename, show_fit = show_fit)
 
-    core_profiles_exp = compare_im_exp.open_and_get_ids(db, shot, 'core_profiles', run_exp)
-    t_cxrs = compare_im_exp.get_t_cxrs(core_profiles_exp)
-    t_cxrs = compare_im_exp.filter_time_range(t_cxrs, time_begin, time_end)
+    if db:
+        core_profiles_exp = compare_im_exp.open_and_get_ids(db, shot, 'core_profiles', run_exp)
+        t_cxrs = compare_im_exp.get_t_cxrs(core_profiles_exp)
+        t_cxrs = compare_im_exp.filter_time_range(t_cxrs, time_begin, time_end)
 
     variables = compare_im_exp.get_variable_names(mod_signals)
 
