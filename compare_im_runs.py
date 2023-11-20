@@ -1012,7 +1012,9 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute', integra
                         out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
 
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
-                    out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
+                    if integrate_errors:
+                        out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
+
                     out_signal_list.append(var)
     out_dict["time_signals"] = out_signal_list
     return out_dict
@@ -1058,7 +1060,9 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                         out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
 
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
-                    out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
+                    if integrate_errors:
+                        out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
+
                     out_signal_list.append(var)
     out_dict["profile_signals"] = out_signal_list
     return out_dict
