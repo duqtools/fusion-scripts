@@ -381,8 +381,13 @@ def read_file_time_dep(filename, show_fit = False):
 
     file_runs = open(filename, 'r')
     lines = file_runs.readlines()
-    db, shot, run_exp = lines[0].split(' ')
-    shot, run_exp = int(shot), int(run_exp)
+
+    if len(lines[0].split(' ')) == 3:
+        db, shot, run_exp = lines[0].split(' ')
+        shot, run_exp = int(shot), int(run_exp)
+    else:
+        db, shot, run_exp = None, None, None
+
 
     labels, runs_output = [], []
     for line in lines[1:]:
