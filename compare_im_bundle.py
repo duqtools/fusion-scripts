@@ -410,6 +410,7 @@ def read_file_time_dep(filename, show_fit = False):
 def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False):
 
     #The reference ids, which should be experimental data, goes first. But does not need to be the experimental data for some applications.
+    idslist = []
     if db:
         idslist = [f'{username}/{db}/{shot}/{run_exp}']
     for run in runs_output:
