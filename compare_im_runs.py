@@ -213,6 +213,7 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
     parser.add_argument("--keep_op_signals",                         default=False, action='store_true',                   help="Keeps the signals used for the operation")
     parser.add_argument("--integrate",                               default=False, action='store_true',                   help="Integrates the requested signal")
+    parser.add_argument("--integrate_errors",                        default=False, action='store_true',                   help="Integrates the errors")
     parser.add_argument("--labels",            nargs='+', type=str,  default=None,                                         help="Labels to be used for the runs")
     args=parser.parse_args()
 
@@ -950,7 +951,7 @@ def difference_error_volume(data1, volume1, data2, volume2):
     return distances
 
 
-def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
+def compute_error_for_all_traces(analysis_dict, error_type = 'absolute', integrate_errors = False):
     out_dict = {}
     out_signal_list = []
     signal_list = analysis_dict["time_signals"] if "time_signals" in analysis_dict else keys_list['time_trace']
@@ -1007,12 +1008,16 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute'):
                         print('Option for the error not recognized') #Should raise exception
                         exit()
                     out_dict[var][run+":"+first_run] = comp_data.copy()
+                    if integrate_errors:
+                        out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
+
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
+                    out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
                     out_signal_list.append(var)
     out_dict["time_signals"] = out_signal_list
     return out_dict
 
-def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute'):
+def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute', integrate_errors = False):
     out_dict = {}
     out_signal_list = []
     signal_list = analysis_dict["profile_signals"] if "profile_signals" in analysis_dict else keys_list['profiles_1d']
@@ -1049,7 +1054,11 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                         print('Option for the error not recognized') #Should raise exception
 
                     out_dict[var][run+":"+first_run] = np.average(comp_data, axis=1)
+                    if integrate_errors:
+                        out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
+
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
+                    out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
                     out_signal_list.append(var)
     out_dict["profile_signals"] = out_signal_list
     return out_dict
@@ -1060,8 +1069,9 @@ def perform_time_trace_analysis(analysis_dict, **kwargs):
     #absolute_error_flag = kwargs.pop("absolute_error", False)
     error_flag = kwargs.pop("error", False)
     error_type = kwargs.pop("error_type", 'absolute')
+    integrate_errors = kwargs.pop("integrate_errors", False)
     if error_flag:
-        abs_err_dict = compute_error_for_all_traces(analysis_dict, error_type = error_type)
+        abs_err_dict = compute_error_for_all_traces(analysis_dict, error_type = error_type, integrate_errors = integrate_errors)
         signal_list = abs_err_dict.pop("time_signals")
         out_dict.update(abs_err_dict)
         for signal in signal_list:
@@ -1077,8 +1087,9 @@ def perform_profile_analysis(analysis_dict, **kwargs):
     #average_absolute_error_flag = kwargs.pop("average_absolute_error", False)
     average_error_flag = kwargs.pop("average_error", False)
     error_type = kwargs.pop("error_type", 'absolute')
+    integrate_errors = kwargs.pop("integrate_errors", False)
     if average_error_flag:
-        avg_abs_err_dict = compute_average_error_for_all_profiles(analysis_dict, error_type = error_type)
+        avg_abs_err_dict = compute_average_error_for_all_profiles(analysis_dict, error_type = error_type, integrate_errors = integrate_errors)
         signal_list = avg_abs_err_dict.pop("profile_signals")
         out_dict.update(avg_abs_err_dict)
         for signal in signal_list:
@@ -1436,7 +1447,7 @@ def get_siglist(data_dict):
 
     return siglist
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, labels = None):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, integrate_errors = False, labels = None):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1476,7 +1487,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
 
     if analyze:
 
-        options = {"error": True, "error_type": error_type}
+        options = {"error": True, "error_type": error_type, "integrate_errors": integrate_errors}
         time_error_dict = perform_time_trace_analysis(data_dict, **options)
 
         if plot:
@@ -1495,6 +1506,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
 
         time_error_averages = print_time_trace_errors(time_error_dict)
         profile_error_averages = print_profile_errors(profile_error_dict)
+
 
     return time_averages, time_error_averages, profile_error_averages
 
@@ -1528,6 +1540,7 @@ def main():
         signal_operations=args.function,
         keep_op_signals=args.keep_op_signals,
         integrate=args.integrate,
+        integrate_errors=args.integrate_errors,
         labels=args.labels
     )
     # Arugments not used: save_plot, version
