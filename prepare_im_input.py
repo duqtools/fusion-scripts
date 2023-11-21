@@ -214,6 +214,11 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         print('Peaking temperature on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
+    if json_input['instructions']['peak profiles']:
+        peak_profiles(db, shot, run_input, run_start, json_input['peaking list']['tags'], mults = json_input['peaking list']['mults'], backend = backend)
+        print('Peaking temperature on index ' + str(run_start))
+        run_input, run_start = run_start, run_start+1        
+
     if json_input['instructions']['multiply electron temperature']:
         shift_profiles('te', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron temperature'], backend = backend)
         print('Multipling electron temperature on index ' + str(run_start))
@@ -1506,6 +1511,36 @@ def correct_misalligned_hrts(db, shot, run, run_target, schema, username = None,
     # Create the new IDS and syncronizing the new core profiles
     ids_struct = {}
     ids_struct['core_profiles'] = core_profiles
+
+    # The same needs to be done to the thermal stored energy which is derivated from the hrts
+    summary = open_and_get_ids(db, shot, run, 'summary', username = username, backend = backend)
+    times_summary = summary.time
+
+    # Need to search where the data are misalligned in the summary time array
+    antimask = [not i for i in mask]
+    times_summary_mask = []
+    for time in times[antimask]:
+        time_summary_mask = times_summary[np.abs(times_summary - time).argmin(0)]
+        if time_summary_mask not in times_summary_mask:
+            times_summary_mask.append(time_summary_mask)
+
+    times_summary_mask = np.asarray(times_summary_mask)
+
+    # Creating the new mask
+    mask_summary = []
+    for time_summary in times_summary:
+        if time_summary in times_summary_mask:
+            mask_summary.append(True)
+        else:
+            mask_summary.append(False)
+
+    # Substituting the thermal energy
+    if len(summary.global_quantities.energy_thermal.value) != 0 and len(times_summary[mask_summary]) != 0:
+        energy_thermal_new = summary.global_quantities.energy_thermal.value[mask_summary]
+        energy_thermal_new = fit_and_substitute(times_summary[mask_summary], times_summary, energy_thermal_new)
+        summary.global_quantities.energy_thermal.value = energy_thermal_new
+        ids_struct['summary'] = summary
+
     put_integrated_modelling(db, shot, run, run_target, ids_struct, backend = backend)
 
 
@@ -2757,6 +2792,57 @@ def interpolate_linearly(new_times, times, signals):
 # ------------------------------- KINETIC PROFILES MANIPULATION ---------------------------------
 
 
+def get_extra_ids_details(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
+
+    if not username: username = getpass.getuser()
+    if not username_target: username_target = username
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not backend: backend = get_backend(db, shot, run)
+
+    return username, username_target, db_target, shot_target, backend
+
+
+def peak_profiles(db, shot, run, run_target, profiles_tag, db_target = None, shot_target = None, username = None, username_target = None, mults = [1,1,1], backend = None):
+
+    '''
+
+    Writes a new IDS with a more (or less) peaked electron temperature profile. The value at the boundary is kept constant. The new version is still unteste
+d
+
+    '''
+
+    username, username_target, db_target, shot_target, backend = get_extra_ids_details(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
+    ids_dict = ids_data.ids_dict
+
+    for profile_tag in profiles_tag:
+
+        if profile_tag == 'te' or profile_tag == 'electrons temperature':
+            tag = 'electrons.temperature'
+        if profile_tag == 'ti' or profile_tag == 'ion temperature':
+            tag = 't_i_average'
+        if profile_tag == 'ne' or profile_tag == 'electrons density':
+            tag = 'electrons.density'
+
+        profile_datas = ids_dict['profiles_1d'][tag]
+        new_profile_datas = []
+
+        for profile_data in profile_datas:
+            new_profile_datas.append(mult*(profile_data - profile_data[-1]) + profile_data[-1])
+
+        ids_dict['profiles_1d'][tag] = np.asarray(new_profile_datas)
+
+    ids_data.ids_dict = ids_dict
+    ids_data.fill_ids_struct()
+
+    put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
+
+    print(profile_tag + ' peaked')
+
+
+
 def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
 
     '''
@@ -2765,11 +2851,7 @@ def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = 
 
     '''
 
-    if not username: username = getpass.getuser()
-    if not username_target: username_target = username
-    if not db_target: db_target = db
-    if not shot_target: shot_target = shot
-    if not backend: backend = get_backend(db, shot, run)
+    username, username_target, db_target, shot_target, backend = get_extra_ids_details(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
     ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
     ids_dict = ids_data.ids_dict
@@ -3434,7 +3516,7 @@ def generate_density_feedback(db, shot, run, run_target, option, db_target = Non
         # Modifying here the line averaged density at the beginning to correlate it to the first measured boundary value
         # Just setting a low value not to risk a too high puff immediately at the beginning of the simulation
         #line_averaged_proxy[variable] = np.insert(line_averaged_proxy[variable], 0, ids_dict['profiles_1d']['electrons.density'][0][-1]*0.5)
-        f_space = interp1d(old_times_core_profiles, line_averaged_proxy[variable])
+        f_space = interp1d(old_times_core_profiles, line_averaged_proxy[variable], fill_value='extrapolate')
         line_average_measured_point[variable] = f_space(0.1)
 
     line_averaged_proxy['electrons.density_fit.measured'] = []

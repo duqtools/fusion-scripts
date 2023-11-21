@@ -6,6 +6,7 @@
         "nbi heating": false,
         "add early profiles": false,
         "peak temperature": false,
+        "peak profiles": false,
         "multiply electron temperature": false,
         "multiply ion temperature": false,
         "multiply electron density": false,
@@ -44,6 +45,11 @@
     "nbi options": [
         "power multiplier"
     ],
+
+    "peaking list": {
+        "tags": ["te","ti","ne"]
+        "mults": [1,1,1]
+    }
 
     "zeff evolution": "original",
     "zeff evolution options":[
@@ -125,5 +131,6 @@
          "imposed nel": [0, 1e13, 1e13, 0],
          "imposed ip times": [0, 0.2, 1.8, 2.0],
          "imposed nel times": [0, 0.2, 1.8, 2.0]
-    }
+    },
+    "generate density feedback": "fit"
 }
