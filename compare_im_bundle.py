@@ -296,6 +296,7 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
 
     # For now not showing the fits in compare runs, where thez should be 0
     idslist = generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False)
+
     data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, mod_signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
 
     options_trace, options_profile = {'error': True, 'error_type' : error_type}, {'average_error': True, 'error_type' : error_type}
@@ -386,12 +387,13 @@ def read_file_time_dep(filename, show_fit = False):
     if len(lines[0].split(' ')) == 3:
         db, shot, run_exp = lines[0].split(' ')
         shot, run_exp = int(shot), int(run_exp)
+        run_output_start = 1
     else:
         db, shot, run_exp = None, None, None
-
+        run_output_start = 0
 
     labels, runs_output = [], []
-    for line in lines[1:]:
+    for line in lines[run_output_start:]:
         line = line.replace('\n','')
         if '|' in lines[1]:
             labels.append(line.split('|')[-1])
@@ -417,7 +419,10 @@ def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False
         if type(run) is int or isinstance(run, np.integer):
             ids = f'{username}/{db}/{shot}/{run}'
         elif type(run) is str or isinstance(run, np.str_):
-            ids = f'/pfs/work/{username}/jetto/runs/{run}/imasdb/{db}/{shot}/2'
+            if db:
+                ids = f'/pfs/work/{username}/jetto/runs/{run}/imasdb/{db}/{shot}/2'
+            else:
+                ids = run
         else:
             print('run of type ' + str(type(run)) + ' is not supported. Aborting')
 
