@@ -3579,16 +3579,25 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
 
     old_times_core_profiles = ids_dict['time']['core_profiles']
     old_times_summary = ids_dict['time']['summary']
+    old_times_equilibrium = ids_dict['time']['equilibrium']
     new_times_core_profiles = old_times_core_profiles[:]
 
-    # Go backwards with the same timestep
-    while new_times_core_profiles[0] > 0.001:
-        if (new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0])) > 0:
-            new_times_core_profiles = np.insert(new_times_core_profiles, 0, new_times_core_profiles[0] - (new_times_core_profiles[1] - new_times_core_profiles[0]))
-        else:
-            new_times_core_profiles = np.insert(new_times_core_profiles, 0, 0.001)
 
-    len_added_times = len(new_times_core_profiles) - len(old_times_core_profiles)
+    def create_new_time_steps(old_times):
+        new_times = old_times[:]
+        # Go backwards with the same timestep
+        while new_times[0] > 0.001:
+            if (new_times[0] - (new_times[1] - new_times[0])) > 0:
+                new_times = np.insert(new_times, 0, new_times[0] - (new_times[1] - new_times[0]))
+            else:
+                new_times = np.insert(new_times, 0, 0.001)
+
+        len_added_times = len(new_times) - len(old_times)
+
+        return new_times, len_added_times
+
+    new_times_core_profiles, len_added_times_core_profiles = create_new_time_steps(old_times_core_profiles)
+    new_times_equilibrium, len_added_times_equilibrium = create_new_time_steps(old_times_equilibrium)
 
     # The grid needs to be calculated before the first profile since the first grid might change and this can create problems
     x_dim = np.shape(ids_dict['profiles_1d']['grid.rho_tor_norm'])[1]
@@ -3713,9 +3722,9 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
         # Probably not necessary but to avoid crashes. Could also use the zeff routines to imposed consistency with zeff
         elif variable == 'ion[0].density':
             if ion_density_option == 'linear':
-                first_profile = ids_dict['profiles_1d'][variable][0][-1] + ti_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)
+                first_profile = ids_dict['profiles_1d'][variable][0][-1] + ne_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)
             elif ion_density_option == 'parabolic':
-                first_profile = ids_dict['profiles_1d'][variable][0][-1] + ti_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)*(1-x)
+                first_profile = ids_dict['profiles_1d'][variable][0][-1] + ne_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)*(1-x)
             elif ion_density_option == 'first profile':
                 first_profile = fit_and_substitute(first_rho_norm_old, x, ids_dict['profiles_1d'][variable][0])
             elif ion_density_option == 'flat':
@@ -3813,7 +3822,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     # This also secretly rebase. Could turn off this option...
     ids_data.update_times(new_times_core_profiles, ['core_profiles'])
     # Maybe it does not work, especially if the coordinates start to merge. Testing
-    ids_data.update_times(new_times_core_profiles, ['equilibrium'])
+    ids_data.update_times(new_times_equilibrium, ['equilibrium'])
 
     # Should be removed
     ids_dict['profiles_1d']['electrons.density_thermal'] = ids_dict['profiles_1d']['electrons.density']
@@ -3826,20 +3835,20 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
             exit()
 
         for variable in ['electrons.density_thermal', 'electrons.density', 'ion[0].density']:
-            for i in range(len_added_times):
+            for i in range(len_added_times_core_profiles):
                 # The line average here is a raw approximation, should be done correctly taking the radial coordinate into account
                 # Also, the right profile to do this should be the first one actually measured. Here it might be extrapolated.
                 # Could also implement something that does not change the boundaries but it might be a little complicated
                 line_average = np.sum(new_profiles[variable][i])
-                line_average_measured_point = np.sum(new_profiles[variable][len_added_times])
-                new_profiles[variable][i] = new_profiles[variable][i]*line_average_measured_point/line_average*line_ave_density_core_profiles_time[i]/line_ave_density_core_profiles_time[len_added_times]
+                line_average_measured_point = np.sum(new_profiles[variable][len_added_times_core_profiles])
+                new_profiles[variable][i] = new_profiles[variable][i]*line_average_measured_point/line_average*line_ave_density_core_profiles_time[i]/line_ave_density_core_profiles_time[len_added_times_core_profiles]
 
     for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
         ids_dict['profiles_1d'][variable] = new_profiles[variable]
 
     ids_dict['profiles_1d']['grid.rho_tor_norm'] = new_rhos_norm
     ids_dict['profiles_1d']['grid.rho_tor'] = new_rhos
-    ids_dict['traces']['global_quantities.ip'] = fit_and_substitute(old_times_equilibrium, new_times_core_profiles, old_current)
+    ids_dict['traces']['global_quantities.ip'] = fit_and_substitute(old_times_equilibrium, new_times_equilibrium, old_current)
 
     # Should check that the correct coordinate for the HFPS is also updated. Or is it necessary?
 
