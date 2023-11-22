@@ -1497,7 +1497,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
         if plot:
             plot_interpolated_traces(time_error_dict, labels=labels)
 
-        options = {"average_error": True, "error_type": error_type}
+        options = {"average_error": True, "error_type": error_type, "integrate_errors": integrate_errors}
 
         profile_error_dict = perform_profile_analysis(data_dict, **options)
 
