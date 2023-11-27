@@ -47,9 +47,9 @@
     ],
 
     "peaking list": {
-        "tags": ["te","ti","ne"]
+        "tags": ["te","ti","ne"],
         "mults": [1,1,1]
-    }
+    },
 
     "zeff evolution": "original",
     "zeff evolution options":[

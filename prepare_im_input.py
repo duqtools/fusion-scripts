@@ -1583,7 +1583,7 @@ def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option
 
     if option == 'core profiles':
         core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', backend = backend)
-        new_times = core_profiles.times
+        new_times = core_profiles.time
 
         ids_data = IntegratedModellingDict(db, shot, run, username = username, backend = backend)
         ids_data.update_times(new_times, changing_idss)
