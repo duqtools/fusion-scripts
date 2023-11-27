@@ -2830,7 +2830,7 @@ d
         new_profile_datas = []
 
         for profile_data in profile_datas:
-            new_profile_datas.append(mult*(profile_data - profile_data[-1]) + profile_data[-1])
+            new_profile_datas.append(mults[profile_tag]*(profile_data - profile_data[-1]) + profile_data[-1])
 
         ids_dict['profiles_1d'][tag] = np.asarray(new_profile_datas)
 
