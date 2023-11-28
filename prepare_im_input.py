@@ -2824,7 +2824,7 @@ d
         if profile_tag == 'ti' or profile_tag == 'ion temperature':
             tag = 't_i_average'
         if profile_tag == 'ne' or profile_tag == 'electrons density':
-            tag = 'electrons.density'
+            tag = 'electrons.density_thermal'
 
         profile_datas = ids_dict['profiles_1d'][tag]
         new_profile_datas = []
