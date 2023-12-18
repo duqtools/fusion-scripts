@@ -176,7 +176,7 @@ def expand_error_keys(category=None):
                 error_keys.append(var+'.'+key)
     return error_keys
 
-choices_error = ["absolute", "relative", "relative volume"]
+choices_error = ["absolute", "relative", "difference", "squared", "absolute volume", "relative volume", "difference volume", "squared volume"]
 
 
 def input():
@@ -207,13 +207,14 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
 #    parser.add_argument("--analyze_traces",   nargs='*', type=str,   default=None, choices=["absolute_error"],             help="Define which analyses to perform after time trace comparison plots")
 #    parser.add_argument("--analyze_profiles", nargs='*', type=str,   default=None, choices=["average_absolute_error"],     help="Define which analyses to perform after profile comparison plots")
     parser.add_argument("--analyze",                                 default=False, action='store_true',                   help="Toggle extra analysis routines, automatically toggles uniform")
-    parser.add_argument("--error_type",                   type=str,  default="absolute", choices=choices_error, help="Switches between absolute and relative error")
+    parser.add_argument("--error_type",                   type=str,  default="absolute", choices=choices_error,            help="Switches between absolute and relative error")
     parser.add_argument("--correct_sign",                            default=None, action='store_true',                    help="Allows to change the sign of the output if it is not identical to reference run")
     parser.add_argument("--function", "-func", nargs='*', type=str,  default=None,                                         help="Specify functions of multiple variables")
     parser.add_argument("--calc_only",                               default=False, action='store_true',                   help="Toggle off all plotting")
     parser.add_argument("--keep_op_signals",                         default=False, action='store_true',                   help="Keeps the signals used for the operation")
     parser.add_argument("--integrate",                               default=False, action='store_true',                   help="Integrates the requested signal")
     parser.add_argument("--integrate_errors",                        default=False, action='store_true',                   help="Integrates the errors")
+    parser.add_argument("--use_regular_rho_grid",                    default=False, action='store_true',                   help="Uses a regular grid in rho instead of the grid of the first run")
     parser.add_argument("--labels",            nargs='+', type=str,  default=None,                                         help="Labels to be used for the runs")
     args=parser.parse_args()
 
@@ -849,7 +850,8 @@ def print_time_traces(data_dict, data_vars=None, inverted_layout=False):
                     if len(data_dict[signame][run]) > 0:
                         if run not in out_dict:
                             out_dict[run] = {}
-                        val = np.mean(data_dict[signame][run])
+                        #val = np.mean(data_dict[signame][run])
+                        val = np.mean(data_dict[signame][run][np.where(np.isnan(data_dict[signame][run]), False, True)])
                         print("%s %s average: %10.6e" % (run, signame, float(val)))
                         out_dict[run][signame] = val
         else:
@@ -857,12 +859,18 @@ def print_time_traces(data_dict, data_vars=None, inverted_layout=False):
                 if isinstance(data_dict[run], dict) and signame in data_dict[run] and len(data_dict[run][signame]) > 0:
                     if run not in out_dict:
                         out_dict[run] = {}
-                    val = np.mean(data_dict[run][signame])
+                    val = np.mean(data_dict[run][signame][np.where(np.isnan(data_dict[run][signame]), False, True)])
+                    #val = np.mean(data_dict[run][signame])
                     print("%s %s average: %10.6e" % (run, signame, float(val)))
                     out_dict[run][signame] = val
+
     return out_dict
 
-def print_time_trace_errors(time_error_dict, custom_vars=None):
+
+#here for the integrate should not be average but should be last value normalized on the time interval
+
+def print_time_trace_errors(time_error_dict, custom_vars=None, integrate_errors = False):
+
     out_dict = {}
     signal_list = time_error_dict["time_signals"] if "time_signals" in time_error_dict else expand_error_keys('time_trace')
     if isinstance(custom_vars, list):
@@ -872,12 +880,15 @@ def print_time_trace_errors(time_error_dict, custom_vars=None):
             for run in time_error_dict[signame]:
                 if signame not in out_dict:
                     out_dict[signame] = {}
-                val = np.mean(time_error_dict[signame][run][np.where(np.isnan(time_error_dict[signame][run]), False, True)])
+                if not integrate_errors:
+                    val = np.mean(time_error_dict[signame][run][np.where(np.isnan(time_error_dict[signame][run]), False, True)])
+                else:
+                    val = time_error_dict[signame][run][-1]/(time_error_dict[signame+'.t'][-1]-time_error_dict[signame+'.t'][0])
                 print("%s %s average error: %10.6e" % (run, signame, float(val)))
                 out_dict[signame][run] = val
     return out_dict
 
-def print_profile_errors(profile_error_dict, custom_vars=None):
+def print_profile_errors(profile_error_dict, custom_vars=None, integrate_errors = False):
     out_dict = {}
     signal_list = profile_error_dict["time_signals"] if "time_signals" in profile_error_dict else expand_error_keys('time_trace')
     if isinstance(custom_vars, list):
@@ -887,7 +898,12 @@ def print_profile_errors(profile_error_dict, custom_vars=None):
             for run in profile_error_dict[signame]:
                 if signame not in out_dict:
                     out_dict[signame] = {}
-                val = np.mean(profile_error_dict[signame][run][np.where(np.isnan(profile_error_dict[signame][run]), False, True)])
+                #val = np.mean(profile_error_dict[signame][run][np.where(np.isnan(profile_error_dict[signame][run]), False, True)])
+                if not integrate_errors:
+                    val = np.mean(profile_error_dict[signame][run][np.where(np.isnan(profile_error_dict[signame][run]), False, True)])
+                else:
+                    val = profile_error_dict[signame][run][-1]/(profile_error_dict[signame+'.t'][-1]-profile_error_dict[signame+'.t'][0])
+
                 print("%s %s average error: %10.6e" % (run, signame, float(val)))
                 out_dict[signame][run] = val
     return out_dict
@@ -900,53 +916,80 @@ def relative_error(data1, data2):
     return np.abs(2*(data1 - data2)/(data1 + data2))
 
 def squared_error(data1, data2):
-    return np.abs(2*(data1 - data2)*(data1 - data2)/(data1 + data2))
+    return abs(4*(data1 - data2)*(data1 - data2)/((data1 + data2)*(data1 + data2)))
 
 def difference_error(data1, data2):
     return 2*(np.abs(data1) - np.abs(data2))/np.abs(data1 + data2)
 
+def calculate_volume_layers_single(volumes):
+    volume_layers = np.asarray([])
+    for volume in volumes:
+        volume_layer = [1.0e-6]
+        for volume_pre, volume_post in zip(volume[:], volume[1:]):
+            volume_layer.append(volume_post - volume_pre)
+        volume_layers = np.hstack((volume_layers, np.asarray(volume_layer)))
+
+    volume_layers = volume_layers.reshape(np.shape(volumes))
+
+    return volume_layers
+
+def calculate_volume_layers(volumes1, volumes2):
+
+    volume_layers1 = calculate_volume_layers_single(volumes1)
+    volume_layers2 = calculate_volume_layers_single(volumes2)
+
+    volume_layers = (volume_layers1+volume_layers2)/2
+
+    return volume_layers
+
+
 #Testing with errors weighted on the volume
 def absolute_error_volume(data1, volume1, data2, volume2):
-    volumes = (volume1+volume2)/2
-    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
-    distances = np.asarray([])
-    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)*volume/volume_normalization)))
+    #volumes = (volume1+volume2)/2
+    #volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
+    #for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
+    #    distances = np.hstack((distances, np.abs(2*(dat1 - dat2)*volume/volume_normalization)))
 
-    distances = distances.reshape(np.shape(volumes))
+    volume_layers = calculate_volume_layers(volume1, volume2)
+    distances = np.asarray([])
+
+    for dat1, dat2, volume_layer in zip(data1, data2, volume_layers):
+        distances = np.hstack((distances, np.abs((dat1 - dat2)*volume_layer)))
+
+    distances = distances.reshape(np.shape(volume1))
 
     return distances
 
 def relative_error_volume(data1, volume1, data2, volume2):
-    volumes = (volume1+volume2)/2
-    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
-    distances = np.asarray([])
-    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
 
-    distances = distances.reshape(np.shape(volumes))
+    volume_layers = calculate_volume_layers(volume1, volume2)
+    distances = np.asarray([])
+    for dat1, dat2, volume_layer in zip(data1, data2, volume_layers):
+        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)/(dat1 + dat2)*volume_layer)))
+
+    distances = distances.reshape(np.shape(volume1))
 
     return distances
 
 def squared_error_volume(data1, volume1, data2, volume2):
-    volumes = (volume1+volume2)/2
-    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
-    distances = np.asarray([])
-    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, np.abs(2*(dat1 - dat2)*(dat1 - dat2)/(dat1 + dat2)*volume/volume_normalization)))
 
-    distances = distances.reshape(np.shape(volumes))
+    volume_layers = calculate_volume_layers(volume1, volume2)
+    distances = np.asarray([])
+    for dat1, dat2, volume_layer in zip(data1, data2, volume_layers):
+        distances = np.hstack((distances, np.abs(4*(dat1 - dat2)*(dat1 - dat2)/((dat1 + dat2)*(dat1 + dat2))*volume_layer)))
+
+    distances = distances.reshape(np.shape(volume1))
 
     return distances
 
 def difference_error_volume(data1, volume1, data2, volume2):
-    volumes = (volume1+volume2)/2
-    volumes_normalization = (volume1[:,-1]+volume2[:,-1])/2
-    distances = np.asarray([])
-    for dat1, dat2, volume, volume_normalization in zip(data1, data2, volumes, volumes_normalization):
-        distances = np.hstack((distances, (2*(np.abs(dat1) - np.abs(dat2))/(np.abs(dat1) + np.abs(dat2))*volume/volume_normalization)))
 
-    distances = distances.reshape(np.shape(volumes))
+    volume_layers = calculate_volume_layers(volume1, volume2)
+    distances = np.asarray([])
+    for dat1, dat2, volume, volume_layer in zip(data1, data2, volume_layers):
+        distances = np.hstack((distances, (2*(np.abs(dat1) - np.abs(dat2))/(np.abs(dat1) + np.abs(dat2))*volume_layer)))
+
+    distances = distances.reshape(np.shape(volume1))
 
     return distances
 
@@ -993,22 +1036,29 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute', integra
                     elif error_type == 'squared':
                         comp_data = squared_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'difference':
-                        comp_data = sifference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = difference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
 
                     elif error_type == 'absolute volume':
-                        comp_data = absolute_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = absolute_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'relative volume':
-                        comp_data = relative_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = relative_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'squared volume':
-                        comp_data = squared_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = squared_error(analysis_dict[signame][run].flatten(), first_data.flatten())
                     elif error_type == 'difference volume':
-                        comp_data = difference_error_volume(analysis_dict[signame][run].flatten(), first_data.flatten())
+                        comp_data = difference_error(analysis_dict[signame][run].flatten(), first_data.flatten())
 
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
                     out_dict[var][run+":"+first_run] = comp_data.copy()
+
                     if integrate_errors:
+                        if np.isnan(out_dict[var][run+":"+first_run][0]):
+                            out_dict[var][run+":"+first_run][0] = 0 #First time needs to be there for integration to start at the right time
+                        # Filter nans
+                        analysis_dict[signame+".t"] = analysis_dict[signame+".t"][~np.isnan(out_dict[var][run+":"+first_run])]
+                        out_dict[var][run+":"+first_run] = out_dict[var][run+":"+first_run][~np.isnan(out_dict[var][run+":"+first_run])]
+
                         out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
 
                     out_dict[var+".t"] = analysis_dict[signame+".t"]
@@ -1016,6 +1066,7 @@ def compute_error_for_all_traces(analysis_dict, error_type = 'absolute', integra
                         out_dict[var+".t"] = (out_dict[var+".t"][:-1] + out_dict[var+".t"][1:]) / 2.0
 
                     out_signal_list.append(var)
+
     out_dict["time_signals"] = out_signal_list
     return out_dict
 
@@ -1031,7 +1082,7 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                 if first_data is None:
                     first_run = run
                     first_data = analysis_dict[signame][first_run]
-                    if error_type == 'relative volume':
+                    if 'volume' in error_type:
                         signame_volume = 'core_profiles.profiles_1d[].grid.volume'
                         first_data_volume = analysis_dict[signame_volume][first_run]
                 else:
@@ -1039,8 +1090,20 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                         var = signame+".average_absolute_error"
                     elif error_type == 'relative':
                         var = signame+".average_relative_error"
+                    elif error_type == 'difference':
+                        var = signame+".average_difference_error"
+                    elif error_type == 'squared':
+                        var = signame+".average_squared_error"
+
+                    elif error_type == 'absolute volume':
+                        var = signame+".average_absolute_error_volume"
                     elif error_type == 'relative volume':
                         var = signame+".average_relative_error_volume"
+                    elif error_type == 'difference volume':
+                        var = signame+".average_difference_error_volume"
+                    elif error_type == 'squared volume':
+                        var = signame+".average_squared_error_volume"
+
                     else:
                         print('Option for the error not recognized') #Should raise exception
                         exit()
@@ -1050,12 +1113,28 @@ def compute_average_error_for_all_profiles(analysis_dict, error_type = 'absolute
                         comp_data = absolute_error(analysis_dict[signame][run], first_data)
                     elif error_type == 'relative':
                         comp_data = relative_error(analysis_dict[signame][run], first_data)
+                    elif error_type == 'difference':
+                        comp_data = difference_error(analysis_dict[signame][run], first_data)
+                    elif error_type == 'squared':
+                        comp_data = squared_error(analysis_dict[signame][run], first_data)
+
+                    elif error_type == 'absolute volume':
+                        comp_data = absolute_error_volume(analysis_dict[signame][run], analysis_dict[signame_volume][run], first_data, first_data_volume)
                     elif error_type == 'relative volume':
                         comp_data = relative_error_volume(analysis_dict[signame][run], analysis_dict[signame_volume][run], first_data, first_data_volume)
+                    elif error_type == 'difference volume':
+                        comp_data = difference_error_volume(analysis_dict[signame][run], analysis_dict[signame_volume][run], first_data, first_data_volume)
+                    elif error_type == 'squared volume':
+                        comp_data = squared_error_volume(analysis_dict[signame][run], analysis_dict[signame_volume][run], first_data, first_data_volume)
+
                     else:
                         print('Option for the error not recognized') #Should raise exception
 
-                    out_dict[var][run+":"+first_run] = np.average(comp_data, axis=1)
+                    out_dict[var][run+":"+first_run] = np.average(comp_data, axis=1)   #Averaging the errors
+
+                    if 'squared' in error_type:
+                        out_dict[var][run+":"+first_run] = np.sqrt(out_dict[var][run+":"+first_run])
+
                     if integrate_errors:
                         out_dict[var][run+":"+first_run] = cumtrapz(out_dict[var][run+":"+first_run], analysis_dict[signame+".t"])
 
@@ -1451,15 +1530,39 @@ def get_siglist(data_dict):
 
     return siglist
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, integrate_errors = False, labels = None):
+
+def rebase_x_datadict(data_dict):
+
+    #first create a new variable with a regular grid in x
+
+    for signal in data_dict:
+        if signal.endswith('.x'):
+            variable_name = signal[:-2]
+            x_new = np.arange(0,1,1/np.shape(data_dict[signal])[0])
+            for run in data_dict[variable_name]:
+                ys_new = np.asarray([])
+                for time_slice in data_dict[variable_name][run]:
+                    ys_new = np.hstack((ys_new, fit_and_substitute(data_dict[signal], x_new, time_slice))) #Recalculate the variable on regular grid
+                ys_new = ys_new.reshape(np.shape(data_dict[variable_name][run]))
+
+                data_dict[variable_name][run] = ys_new
+            data_dict[signal] = x_new
+
+    return data_dict
+
+
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, integrate_errors = False, use_regular_rho_grid = False, labels = None):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
 
-    if error_type == 'relative volume':
+    if 'volume' in error_type:
         signals.append('core_profiles.profiles_1d[].grid.volume')
 
     data_dict, ref_tag = generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, reference_index=ref_idx, standardize=standardize, time_basis=time_basis, backend = backend, keep_op_signals = keep_op_signals)
+
+    if use_regular_rho_grid:
+        data_dict = rebase_x_datadict(data_dict)
 
     if integrate and standardize:
         siglist = get_siglist(data_dict)
@@ -1469,10 +1572,9 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
                 data_dict[sig][tag] = cumtrapz(data_dict[sig][tag], x=data_dict[sig + '.t'])
             data_dict[sig + '.t'] = (data_dict[sig + '.t'][:-1] + data_dict[sig + '.t'][1:]) / 2.0
 
-
     if plot:
         if standardize:
-            if error_type == 'relative volume':
+            if 'volume' in error_type:
                 data_dict_no_vol = copy.deepcopy(data_dict)
                 del data_dict_no_vol['core_profiles.profiles_1d[].grid.volume']
 
@@ -1497,20 +1599,37 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
         if plot:
             plot_interpolated_traces(time_error_dict, labels=labels)
 
-        options = {"average_error": True, "error_type": error_type, "integrate_errors": integrate_errors}
+        options = {"average_error": True, "error_type": error_type}
 
         profile_error_dict = perform_profile_analysis(data_dict, **options)
 
-        if error_type == 'relative volume':
-            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume']
-            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_relative_error_volume.t']
+        if 'squared' in error_type:
+            for signal in profile_error_dict:
+                if signal.endswith('error'):
+                    for run in profile_error_dict[signal]:
+                        profile_error_dict[signal][run] = profile_error_dict[signal][run]*profile_error_dict[signal][run]
+
+        if 'volume' in error_type:
+            error_type_split = error_type.split(' ')
+            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_' + error_type_split[0] + '_error_volume']
+            del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_' + error_type_split[0] + '_error_volume.t']
 
         if plot:
             plot_interpolated_traces(profile_error_dict, labels=labels)
 
-        time_error_averages = print_time_trace_errors(time_error_dict)
-        profile_error_averages = print_profile_errors(profile_error_dict)
+        time_error_averages = print_time_trace_errors(time_error_dict, integrate_errors = integrate_errors)
+        if 'squared' in error_type:
+            if time_error_averages:
+                for signal in time_error_averages:
+                    for run in time_error_averages[signal]:
+                        time_error_averages[signal][run] = np.sqrt(time_error_averages[signal][run])
 
+        profile_error_averages = print_profile_errors(profile_error_dict, integrate_errors = integrate_errors)
+        if 'squared' in error_type:
+            if profile_error_averages:
+                for signal in profile_error_averages:
+                    for run in profile_error_averages[signal]:
+                        profile_error_averages[signal][run] = np.sqrt(profile_error_averages[signal][run])
 
     return time_averages, time_error_averages, profile_error_averages
 
@@ -1545,6 +1664,7 @@ def main():
         keep_op_signals=args.keep_op_signals,
         integrate=args.integrate,
         integrate_errors=args.integrate_errors,
+        use_regular_rho_grid=args.use_regular_rho_grid,
         labels=args.labels
     )
     # Arugments not used: save_plot, version
