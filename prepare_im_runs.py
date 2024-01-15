@@ -964,6 +964,18 @@ class IntegratedModellingRuns:
         panel_name = 'BoundCondPanel.ionDens[0]'
         modify_jset_time_list(run_name, panel_name, self.boundary_conditions['times'], self.boundary_conditions['ne'])
 
+        # Need to also turn off bcintrsanco. This should be a function 
+        line_start = identify_line_start_extranamelist(run_name, 'BCINTRHON')
+        line_start = line_start.replace('[0]', '[2]')
+        new_content = '1.0'
+        modify_jset_line(run_name, line_start, new_content)
+
+        #Modifying qlk boundaries. Should do the same for TGLF.
+        line_start = identify_line_start_extranamelist(run_name, 'qlk_rhomax')
+        line_start = line_start.replace('[0]', '[2]')
+        new_content = '1.0'
+        modify_jset_line(run_name, line_start, new_content)
+
 
     def modify_jset(self, path, run_name, ids_number, ids_output_number, b0, r0):
     
@@ -1594,6 +1606,22 @@ def write_file(path, lines):
             f.writelines(line)
 
 
+def identify_line_start_extranamelist(run_name, variable_name):
+
+    line_start = None
+    read_data = []
+    with open(run_name + '/' + 'jetto.jset') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+    for index, line in enumerate(read_data):
+        if variable_name in line:
+            line_start = read_data[index][:60]
+
+    return line_start
+
+
 def modify_jettosin_multiline(path_jetto_sin, fields_array, numbers_array):
 
     values, times = numbers_array[0], numbers_array[1]
@@ -1962,7 +1990,7 @@ def insert_jset_line(run_name, previous_line_start, content):
             f.writelines(line)
 
 
-def delete_jset_line(run_name, line_start):
+def delete_jset_value_in_line(run_name, line_start):
 
     '''
 
@@ -1973,12 +2001,18 @@ def delete_jset_line(run_name, line_start):
 
     with open(run_name + '/' + 'jetto.jset') as f:
         lines = f.readlines()
-        for line in lines:
-            read_data.append(line)
 
-        for line in read_data:
-            if line.startswith(line_start):
-                read_data.remove(line)
+        for line in lines:
+            if 'select' not in line:
+                if line.startswith(line_start):
+                    read_data.append(line.split(':')[0] + ': ' + '\n')
+                else:
+                    read_data.append(line)
+            else:
+                if line.startswith(line_start):
+                    read_data.append(line.replace('true', 'false'))
+                else:
+                    read_data.append(line)
 
     with open(run_name + '/' + 'jetto.jset', 'w') as f:
         for line in read_data:
@@ -2012,15 +2046,15 @@ def modify_jset_line(run_name, line_start, new_content):
 def create_jset_time_list(run_name, panel_name, times, values):
 
     # Create a list with the start of the lines and the content to be used by 'modify_jset_line'
-    line_start_list = [panel_name + '.option']
+    line_start_list = [panel_name + '.option', panel_name + '.ConstValue']
     for itime in range(len(times)):
         line_start_list.append(panel_name + '.tpoly.select[' + str(itime) + ']')
     for itime in range(len(times)):
         line_start_list.append(panel_name + '.tpoly.time[' + str(itime) + ']')
     for itime in range(len(times)):
-        line_start_list.append(panel_name + '.tpoly.value[' + str(itime) + ']')
+        line_start_list.append(panel_name + '.tpoly.value[' + str(itime) + '][0]')
 
-    new_content_list = ['Time Dependent']
+    new_content_list = ['Time Dependent', str(values[0])]
     for itime in range(len(times)):
         new_content_list.append('true')
     for time in times:
@@ -2034,7 +2068,7 @@ def create_jset_time_list(run_name, panel_name, times, values):
 def modify_jset_time_list(run_name, panel_name, times, values):
 
     # Delete the old values that might be already there
-    delete_jset_line(run_name, panel_name)
+    delete_jset_value_in_line(run_name, panel_name)
 
     # Create the list
     line_start_list, new_content_list = create_jset_time_list(run_name, panel_name, times, values)
@@ -2090,6 +2124,7 @@ def modify_jettoin_line(run_name, line_start, new_content):
                     else:
                         read_data[index] = line_start + new_content
 
+
     with open(run_name + '/' + 'jetto.in', 'w') as f:
         for line in read_data:
             f.writelines(line)
@@ -2138,7 +2173,6 @@ def modify_llcmd(run_name, baserun_name, generator_username):
         for index, line in enumerate(read_data):
             read_data[index] = line.replace(baserun_name, run_name)
             if generator_username:
-#                print('changing' + generator_username + 'in' + username)
                 read_data[index] = read_data[index].replace(generator_username, username)
 
 
