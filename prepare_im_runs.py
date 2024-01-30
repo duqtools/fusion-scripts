@@ -13,6 +13,8 @@ from scipy.interpolate import interp1d, UnivariateSpline
 #from idstools import *
 from packaging import version
 from os import path
+from pathlib import Path
+from prepare_im_input import MissingDataError
 
 import inspect
 import types
@@ -176,6 +178,7 @@ class IntegratedModellingRuns:
         setup_time_polygon_flag = False,
         change_impurity_puff_flag = False,
         setup_time_polygon_impurities_flag = False,
+        add_extra_transport_flag = False,
         setup_nbi_flag = False,
         path_nbi_config = None,
         json_input = None,
@@ -206,6 +209,7 @@ class IntegratedModellingRuns:
         self.setup_time_polygon_flag = setup_time_polygon_flag
         self.change_impurity_puff_flag = change_impurity_puff_flag
         self.setup_time_polygon_impurities_flag = setup_time_polygon_impurities_flag
+        self.add_extra_transport_flag = add_extra_transport_flag
         self.setup_nbi_flag = setup_nbi_flag
         self.path_nbi_config = path_nbi_config
         self.core_profiles = None
@@ -328,54 +332,6 @@ class IntegratedModellingRuns:
         self.core_profiles, self.equilibrium = prepare_im_input.setup_input(self.db, self.shot, self.run_input, self.run_start, json_input = self.json_input, time_start = self.time_start, time_end = self.time_end, force_input_overwrite = self.force_input_overwrite, core_profiles = self.core_profiles, equilibrium = self.equilibrium)
 
 
-    def setup_input_sensitivities(self):
-    
-        '''
-    
-        Automatically sets up the IDSs to be used as an input for a sensitivity study. More sensitivities can be added
-    
-        '''
-    
-        try:
-            import prepare_im_input
-        except ImportError:
-            print('prepare_input.py not found and needed for this option. Aborting')
-            exit()
-
-    # Maybe here I am already creating all the entries, which might be a problem if I change 'shift profiles', but should be allright for now
-
-        for index in range(1,len(self.tag_list),1):
-            data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, self.db, self.shot, self.run_start+index, user_name=self.username)
-            op = data_entry.open()
-    
-            if op[0]==0:
-                print('one of the data entries already exists, aborting')
-                exit()
-    
-            data_entry.close()
-    
-        # Could check that there are no idss here before I overwrite evverything
-    
-        name, mult = [], []
-    
-    # Give the option to the user to decide which sensitivities should be done
-    
-        index = 1
-
-        for run in self.sensitivity_list:
-            name, mult = run.split(' ')
-            name = name
-            mult = float(mult)
-    
-            if name == 'tepeak':
-                prepare_im_input.peak_temperature(self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
-            if name == 'q95':
-                prepare_im_input.alter_q_profile_same_q95(self.db, self.shot, self.run_start, self.db, self.shot, self.run_start+index, mult = mult)
-            else:
-                prepare_im_input.shift_profiles(name, self.db, self.shot, self.run_start, self.run_start+index, mult = mult)
-    
-            index += 1
-    
     def create_baserun(self):
     
         '''
@@ -486,6 +442,9 @@ class IntegratedModellingRuns:
         if self.change_impurity_puff_flag:
             self.change_impurity_puff()
 
+        if self.add_extra_transport_flag:
+            self.add_extra_transport()
+
         # Currently only working with one impurity
         if self.setup_time_polygon_impurities_flag:
             self.setup_time_polygon_impurity_puff()
@@ -577,85 +536,13 @@ class IntegratedModellingRuns:
         copy_files(path_ids_input, path_output)
 
     def delete_generator(self):
+        self.db_generator = os.listdir(self.path_baserun+ '/imasdb/')[0]
+        self.shot_generator = os.listdir(self.path_baserun+ '/imasdb/' + self.db_generator + '/3/')[0]
 
-        if os.path.exists(self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/master.h5'):
-            for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/' + str(self.shot) + '/'):
-                file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3' + str(self.shot) + '/', filename)
-                os.remove(file_path)
-
-        elif os.path.exists(self.path_baserun+ '/imasdb/' + self.db + '/3/0/ids_649650001.tree'):
-            for filename in os.listdir(self.path_baserun+ '/imasdb/' + self.db + '/3/0/'):
-                file_path = os.path.join(self.path_baserun+ '/imasdb/' + self.db + '/3/0/', filename)
-                os.remove(file_path)
-            shutil.rmtree(self.path_baserun+ '/imasdb/' + self.db + '/3/0')
+        if os.path.exists(self.path_baserun+ '/imasdb/' + self.db_generator):
+            shutil.rmtree(self.path_baserun+ '/imasdb/' + self.db_generator)
 
 
-    def create_sensitivities(self):
-    
-        '''
-    
-        Sets up and runs the simulations created by setup_input_sensitivities(). Runs are expected to be numbered as run###something
-    
-        '''
-
-        # To save time, equilibrium and core profiles are not extracted if they already exist
-        if not self.core_profiles:
-            self.core_profiles = open_and_get_ids(self.db, self.shot, self.run_input, 'core_profiles')
-
-        if not self.equilibrium:
-            self.equilibrium = open_and_get_ids(self.db, self.shot, self.run_input, 'equilibrium')
-
-        time_eq = self.equilibrium.time
-        time_cp = self.core_profiles.time
-
-        if self.time_start == None:
-            self.time_start = max(min(time_eq), min(time_cp))
-        elif self.time_start == 'core_profile':
-            self.time_start = min(time_cp)
-        elif self.time_start == 'equilibrium':
-            self.time_start = min(time_eq)
-
-        if self.time_end == 100:
-            self.time_end = min(max(time_eq), max(time_cp))
-
-        baserun_number = int(self.baserun_name[3:6])
-    
-        if not self.force_run:
-            for index in range(1,len(self.tag_list),1):
-                data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, self.db, self.shot, self.run_output+index, user_name=self.username)
-                op = data_entry.open()
-    
-                if op[0]==0:
-                    print('one of the data entries already exists, aborting')
-                    exit()
-    
-                data_entry.close()
-    
-        number_list = range(baserun_number+1,baserun_number+len(self.tag_list)+1,1)
-        number_list = [str(i) for i in number_list]
-        ids_list = range(self.run_start+1,self.run_start+len(self.tag_list)+1,1)
-        ids_list = [str(i) for i in ids_list]
-        ids_output_list = range(self.run_output+1,self.run_output+len(self.tag_list)+1,1)
-        ids_output_list = [str(i) for i in ids_output_list]
-    
-        os.chdir(self.path)
-    
-        sensitivity_names_list = []
-
-        for number, tag in zip(number_list, self.tag_list):
-            sensitivity_names_list.append(self.baserun_name[:3] + number + self.baserun_name[6:] + tag)
-    
-        for sensitivity_name in sensitivity_names_list:
-            shutil.copytree(self.baserun_name, sensitivity_name)
-    
-        for sensitivity_name, ids_number, ids_output_number in zip(sensitivity_names_list, ids_list, ids_output_list):
-            os.chdir(self.path)
-    
-            b0, r0 = self.get_r0_b0()
-
-            self.modify_jset(self.path, sensitivity_name, ids_number, ids_output_number, b0, r0)
-            modify_llcmd(sensitivity_name, self.baserun_name, self.generator_username)
-    
     def run_baserun(self):
     
         # ------- Not working yet, jetto_tool automatically setup a slurm environment -------
@@ -669,45 +556,6 @@ class IntegratedModellingRuns:
         print('running ' + self.baserun_name)
         os.system('sbatch ./.llcmd')
     
-    
-    def run_sensitivities(self):
-    
-        '''
-    
-        It assumes that the inputs for the sensitivities and the run folders already exists, and runs them.
-    
-        '''
-    
-        baserun_number = int(self.baserun_name[3:6])
-    
-        # If force run is true it will overwrite whaterver is in the target runs. You might lose the output from previous simulations.
-    
-        if not self.force_run:
-            for index in range(1,len(self.tag_list),1):
-                data_entry = imas.DBEntry(imasdef.MDSPLUS_BACKEND, self.db, self.shot, self.run_output+index, user_name=self.username)
-                op = data_entry.open()
-    
-                if op[0]==0:
-                    print('one of the data entries already exists, aborting')
-                    exit()
-    
-                data_entry.close()
-    
-        number_list = range(baserun_number+1,baserun_number+len(self.tag_list)+1,1)
-        number_list = [str(i) for i in number_list]
-
-        sensitivity_names_list = []
-
-        for number, tag in zip(number_list, self.tag_list):
-            sensitivity_names_list.append(self.baserun_name[:3] + number + self.baserun_name[6:] + tag)
-    
-        os.chdir(self.path)
-    
-        for sensitivity_name in sensitivity_names_list:
-            os.chdir(self.path + '/' + sensitivity_name)
-            print('running ' + sensitivity_name)
-            os.system('sbatch ./.llcmd')
-
 
     def get_r0_b0(self):
 
@@ -904,7 +752,50 @@ class IntegratedModellingRuns:
         modify_jettoin_line(run_name, '  TTIB', self.boundary_conditions['times'])
         modify_jettoin_line(run_name, '  TDNHB1', self.boundary_conditions['times'])
 
-        modify_jettoin_line(run_name, '  BCINTRHON', '\n')
+        #modify_jettoin_line(run_name, '  BCINTRHON', '\n')
+
+        modify_jettoin_line(run_name, '  BCINTRHON', 1.0)
+        modify_jettoin_line(run_name, '  qlk_rhomax', 0.995)    #For some reason the run crashes immediately with 1.0
+
+    def add_extra_transport(self):
+
+        run_name = self.path_baserun
+        self.add_extra_transport_jettoin(run_name)
+        self.add_extra_transport_jettojset(run_name)
+
+
+    def add_extra_transport_jettoin(self, run_name):
+
+        modify_jettoin_line(run_name, '  IFORME', 2)
+        modify_jettoin_line(run_name, '  IFORMD', 2)
+
+        if self.add_extra_transport_flag == True:
+            modify_jettoin_line(run_name, '  FORME', [20000.0, 1.0, 0.01])
+            modify_jettoin_line(run_name, '  FORMD', [20000.0, 1.0, 0.01])
+        else:
+            modify_jettoin_line(run_name, '  FORME', [self.add_extra_transport_flag, 1.0, 0.01])
+            modify_jettoin_line(run_name, '  FORMD', [self.add_extra_transport_flag, 1.0, 0.01])
+
+
+    def add_extra_transport_jettojset(self, run_name):
+
+        modify_jset_line(run_name, 'TransportAddFormDialog.model', 'Gaussian')
+        modify_jset_line(run_name, 'TransportAddPanel.FormulaElectronThermal', 'true')
+        if self.add_extra_transport_flag == True:
+            modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.eleForm[0]', str(20000))
+        else:
+            modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.eleForm[0]', str(self.add_extra_transport_flag))
+        modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.eleForm[1]', str(1.0))
+        modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.eleForm[2]', str(0.01))
+
+        # Also changing the particle transport. Will see if I want it here
+        modify_jset_line(run_name, 'TransportAddPanel.FormulaParticle', 'true')
+        if self.add_extra_transport_flag == True:
+            modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.parForm[0]', str(20000))
+        else:
+            modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.parForm[0]', str(self.add_extra_transport_flag))
+        modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.parForm[1]', str(1.0))
+        modify_jset_line(run_name, 'TransportAddFormDialog.gaussian.parForm[2]', str(0.01))
 
 
     def setup_feedback_on_density(self):
@@ -966,15 +857,17 @@ class IntegratedModellingRuns:
 
         # Need to also turn off bcintrsanco. This should be a function 
         line_start = identify_line_start_extranamelist(run_name, 'BCINTRHON')
-        line_start = line_start.replace('[0]', '[2]')
-        new_content = '1.0'
-        modify_jset_line(run_name, line_start, new_content)
+        if line_start: 
+            line_start = line_start.replace('[0]', '[2]')
+            new_content = '1.0'
+            modify_jset_line(run_name, line_start, new_content)
 
         #Modifying qlk boundaries. Should do the same for TGLF.
         line_start = identify_line_start_extranamelist(run_name, 'qlk_rhomax')
-        line_start = line_start.replace('[0]', '[2]')
-        new_content = '1.0'
-        modify_jset_line(run_name, line_start, new_content)
+        if line_start:
+            line_start = line_start.replace('[0]', '[2]')
+            new_content = '0.995'
+            modify_jset_line(run_name, line_start, new_content)
 
 
     def modify_jset(self, path, run_name, ids_number, ids_output_number, b0, r0):
@@ -1183,11 +1076,18 @@ class IntegratedModellingRuns:
         #        read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
         #    elif ibtsign == -1 :
         #        read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
-         
+
+        # SOMETHING CHANGED IN THE LAST VERSION, DEBUGGING
+
         if ibtsign == 1:
             read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
         elif ibtsign == -1 :
             read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
+
+        #if ibtsign == -1 :
+        #    read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
+
+
 
 
         if self.line_ave_density is not None:
@@ -1304,6 +1204,10 @@ class IntegratedModellingRuns:
         self.puff_value = read_puff_jettosin(self.path + self.baserun_name + '/jetto.sin')
         pulse_schedule = open_and_get_ids(self.db, self.shot, self.run_start, 'pulse_schedule')
         core_profiles = open_and_get_ids(self.db, self.shot, self.run_start, 'core_profiles')
+
+        #Allows for manipulating the impurity puff for sensitivities
+        if isinstance(self.change_impurity_puff_flag, float):
+            self.puff_value = self.puff_value*self.change_impurity_puff_flag
 
         self.dens_feedback_time = pulse_schedule.time
         self.line_ave_density = pulse_schedule.density_control.n_e_line.reference.data
@@ -1888,36 +1792,6 @@ def put_extraname_fields(path, extranamelist):
 
     index_start += 1
 
-    # Could keep this as a legacy option
-    '''
-    extranamelist_lines = []
-    ilist = 0
-    for index_item, item in enumerate(extranamelist.items()):
-        for ielement, element in enumerate(item[1]):
-            new_line1 = namelist_start + '[' + str(ilist) + ']' + '[' + str(0) + ']'
-            new_line2 = namelist_start + '[' + str(ilist) + ']' + '[' + str(1) + ']'
-            new_line3 = namelist_start + '[' + str(ilist) + ']' + '[' + str(2) + ']'
-            new_line4 = namelist_start + '[' + str(ilist) + ']' + '[' + str(3) + ']'
-
-            spaces = ' '*(60 - len(new_line1))
-
-            new_line1 = new_line1 + spaces + ': ' + item[0] + '\n'
-            if len(item[1]) == 1:
-                new_line2 = new_line2 + spaces + ': \n'
-            else:
-                new_line2 = new_line2 + spaces + ': ' + str(ielement+1) + '\n'
-            new_line3 = new_line3 + spaces + ': ' + element + '\n'
-
-            new_line4 = new_line4 + spaces + ': true \n'
-
-            extranamelist_lines.append(new_line1)
-            extranamelist_lines.append(new_line2)
-            extranamelist_lines.append(new_line3)
-            extranamelist_lines.append(new_line4)
-
-            ilist += 1
-
-    '''
     extranamelist_lines = []
     ilist = 0
     for index_item, item in enumerate(extranamelist.items()):
@@ -2267,7 +2141,7 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
-def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps'):
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, add_extra_transport_flag = False):
 
     run_number = first_number
     if not misallignements:
@@ -2283,8 +2157,14 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
 
         json_input['misalignment']['schema'] = misallignement
 
-        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = True, setup_time_polygon_impurities_flag = True, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
-        run_test.setup_create_compare()
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
+
+        try:
+            run_test.setup_create_compare()
+        except MissingDataError as mde:
+            print(f'Caught an exception: {mde}')
+            print('No experimental data is available to set the run for shot ' + str(shot_number))
+            continue
 
 
 if __name__ == "__main__":
