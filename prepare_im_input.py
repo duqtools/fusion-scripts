@@ -192,7 +192,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # Updates the nbi and if needed multiplies the power for sensitivity purposes
     if json_input['instructions']['nbi heating']:
-        setup_nbi_ids(db, shot, run_input, run_start, power_multiplier = json_input['nbi options']['power_multiplier'], backend = backend)
+        setup_nbi_ids(db, shot, run_input, run_start, power_multiplier = json_input['nbi options']['power multiplier'], backend = backend)
         print('Preparing nbi on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
@@ -217,7 +217,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if json_input['instructions']['peak profiles']:
         peak_profiles(db, shot, run_input, run_start, json_input['peaking list']['tags'], mults = json_input['peaking list']['mults'], backend = backend)
         print('Peaking temperature on index ' + str(run_start))
-        run_input, run_start = run_start, run_start+1        
+        run_input, run_start = run_start, run_start+1
 
     if json_input['instructions']['multiply electron temperature']:
         shift_profiles('te', db, shot, run_input, run_start, mult = json_input['instructions']['multiply electron temperature'], backend = backend)
@@ -313,13 +313,10 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         print('correcting zeff on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
-
     if json_input['instructions']['flat q profile']:
         use_flat_q_profile(db, shot, run_input, run_start, backend = backend)
         print('setting a flat q profile on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
-
-    # To save time, core_profiles and equilibrium are saved and passed
 
     if json_input['instructions']['impose ip']:
         impose_linear_ip(db, shot, run_input, run_start, json_input['imposed quantities']['imposed ip'], json_input['imposed quantities']['imposed ip times'])
@@ -333,7 +330,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         print('correcting the equilibrium on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
-
+    # To save time, core_profiles and equilibrium are saved and passed
     return core_profiles, equilibrium
 
 
@@ -653,10 +650,10 @@ class IntegratedModellingDict:
             if len(parts) == 1:
                 profiles_1d[tag] = []
             elif len(parts) == 2:
-            # The new list is updated, appending the keys including the values of the indexes of the nested elements
+                # The new list is updated, appending the keys including the values of the indexes of the nested elements
                 self.all_keys['profiles_1d']['core_sources'].append(parts[0] + '[' + str(0) + parts[1])
                 profiles_1d[split[0] + '#' + parts[0] + '[' + str(0) + parts[1]] = []
-    
+
             for profile in self.ids_struct[ids_iden].source[i_source].profiles_1d:
                 if len(parts) == 1:
                     point = eval('profile.'+ split[1])
@@ -834,7 +831,18 @@ class IntegratedModellingDict:
     # ------------------------------------ MANIPULATION -------------------------------
     
     def select_interval(self, time_start, time_end):
-        
+
+        #Should check here that the data for the selected time interval exists
+        #index_time_start = np.abs(self.ids_dict['time']['core_profiles'] - time_start).argmin(0)
+
+        for time_key in self.ids_dict['time']:
+            time = self.ids_dict['time'][time_key]
+            index_time_start = np.abs(time - time_start).argmin(0)
+            index_time_end = np.abs(time - time_end).argmin(0)
+            if self.ids_dict['time'][time_key][-1] < time_start or self.ids_dict['time'][time_key][0] > time_end or index_time_start == index_time_end:
+                 raise MissingDataError("No data is available for averaging, the generation of the IDS will stop for this shot.")
+
+
         # Could be only one for loop
         for element_key in self.ids_dict['traces'].keys():
             for ids_key in ids_list:
@@ -846,7 +854,7 @@ class IntegratedModellingDict:
                     index_time_end = np.abs(time - time_end).argmin(0)
     
                     self.ids_dict['traces'][element_key] = self.ids_dict['traces'][element_key][index_time_start:index_time_end]
-    
+
         for element_key in self.ids_dict['profiles_1d'].keys():
             for ids_key in ids_list:
                 if element_key in self.all_keys['profiles_1d'][ids_key]:
@@ -1098,12 +1106,15 @@ class IntegratedModellingDict:
     
         ids_iden = 'summary'
         self.fill_basic_quantities(ids_iden)
-   
-        #self.ids_struct[ids_iden].global_quantities.r0.value = self.ids_struct_old[ids_iden].global_quantities.r0.value
-        #self.ids_struct[ids_iden].global_quantities.b0.value = self.ids_struct_old[ids_iden].global_quantities.b0.value
-    
-        self.ids_struct[ids_iden].global_quantities.r0.value = self.ids_dict['extras']['r0']
+
         self.ids_struct[ids_iden].global_quantities.b0.value = self.ids_dict['extras']['b0']
+        self.ids_struct[ids_iden].global_quantities.r0.value = self.ids_dict['extras']['r0']
+
+        # This might create a bug when the length is the same but the time base different. But field should be constant so most times should be ok
+        if len(self.ids_dict['extras']['b0']) == len(self.ids_dict['time']['core_profiles']):
+            self.ids_struct[ids_iden].global_quantities.b0.value = fit_and_substitute(self.ids_dict['time']['core_profiles'], self.ids_dict['time']['summary'], self.ids_dict['extras']['b0'])
+        elif len(self.ids_dict['extras']['b0']) == len(self.ids_dict['time']['equilibrium']):
+            self.ids_struct[ids_iden].global_quantities.b0.value = fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_dict['time']['summary'], self.ids_dict['extras']['b0'])
 
         # Put the traces
         for tag in keys_list['traces']['summary']:
@@ -1289,20 +1300,23 @@ class IntegratedModellingDict:
     
     def get_index_source(self, split):
     
-        if split == 'total':
+        if split == 'unspecified':
             i_source = 0
-    
-        if split == 'nbi':
+
+        if split == 'total':
             i_source = 1
     
-        if split == 'ec':
+        if split == 'nbi':
             i_source = 2
     
-        if split == 'lh':
+        if split == 'ec':
             i_source = 3
     
-        if split == 'ic':
+        if split == 'lh':
             i_source = 4
+    
+        if split == 'ic':
+            i_source = 5
     
         return(i_source)
     
@@ -1542,7 +1556,6 @@ def correct_misalligned_hrts(db, shot, run, run_target, schema, username = None,
         ids_struct['summary'] = summary
 
     put_integrated_modelling(db, shot, run, run_target, ids_struct, backend = backend)
-
 
 def select_interval_ids(db, shot, run, run_target, time_start, time_end, username = None, backend = None):
 
@@ -2023,6 +2036,47 @@ def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot
     ids_data.fill_ids_struct()
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
+
+
+def setup_nbi_ids(db, shot, run_input, run_start, username = None, db_target = None, shot_target = None, username_target = None, power_multiplier = 1.0, backend = None):
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run_input)
+
+    ids_data = IntegratedModellingDict(db, shot, run_input, username = username, backend = backend)
+
+    ids_data.fill_basic_quantities('core_sources')
+
+    ids_data.ids_struct['core_sources'].time = np.asarray([0])
+
+    source_dummy = imas.core_sources().source.getAoSElement()
+    profiles_1d_dummy = source_dummy.profiles_1d.getAoSElement()
+    global_quantities_dummy = source_dummy.global_quantities.getAoSElement()
+
+    profiles_1d_dummy.total_ion_energy = np.asarray([0])
+    global_quantities_dummy.power = np.asarray([0])
+
+    source_dummy.profiles_1d.append(profiles_1d_dummy)
+    source_dummy.global_quantities.append(global_quantities_dummy)
+
+    for i in range(6):
+        if i < len(ids_data.ids_struct['core_sources'].source):
+            ids_data.ids_struct['core_sources'].source[i].profiles_1d[0].total_ion_energy = np.asarray([0])
+            ids_data.ids_struct['core_sources'].source[i].global_quantities.power = np.asarray([0])
+        else:
+            ids_data.ids_struct['core_sources'].source.append(source_dummy)
+
+    ids_dict = ids_data.ids_dict
+
+    # Put the data back in the ids structure
+
+    ids_data.ids_dict = ids_dict
+    ids_data.fill_ids_struct()
+
+    put_integrated_modelling(db, shot, run_input, run_start, ids_data.ids_struct, backend = backend)
 
 
 def set_low_edge_zeff(db, shot, run, run_target, zeff_param = 0, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
@@ -2562,6 +2616,29 @@ def flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_t
     data_entry_target.close()
 
 
+def flip_angf(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    core_profiles_new = copy.deepcopy(core_profiles)
+
+    for itime, profile_1d in enumerate(core_profiles.profiles_1d):
+        core_profiles_new.profiles_1d[itime].rotation_frequency_tor_sonic = -core_profiles.profiles_1d[itime].rotation_frequency_tor_sonic
+
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    core_profiles_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
+
 # ------------------------------- SETTIN PROFILES ---------------------------------
 
 def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
@@ -2820,19 +2897,22 @@ d
     for profile_tag in profiles_tag:
 
         if profile_tag == 'te' or profile_tag == 'electrons temperature':
-            tag = 'electrons.temperature'
+            tags = ['electrons.temperature']
         if profile_tag == 'ti' or profile_tag == 'ion temperature':
-            tag = 't_i_average'
+            tags = ['t_i_average', 'ion[].temperature']
         if profile_tag == 'ne' or profile_tag == 'electrons density':
-            tag = 'electrons.density_thermal'
+            tags = ['electrons.density_thermal', 'electrons.density', 'ion[].density_thermal', 'ion[].density']
 
-        profile_datas = ids_dict['profiles_1d'][tag]
+        profile_datas = ids_dict['profiles_1d'][tags[0]]
         new_profile_datas = []
+
+        #Not great since there is no mapping for the mults. Should add
 
         for profile_data in profile_datas:
             new_profile_datas.append(mults[profile_tag]*(profile_data - profile_data[-1]) + profile_data[-1])
 
-        ids_dict['profiles_1d'][tag] = np.asarray(new_profile_datas)
+        for tag in tags:
+            ids_dict['profiles_1d'][tag] = np.asarray(new_profile_datas)
 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
@@ -2840,7 +2920,6 @@ d
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
     print(profile_tag + ' peaked')
-
 
 
 def peak_temperature(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, mult = 1, backend = None):
@@ -3238,7 +3317,6 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     ids_dict['profiles_1d']['ion[0].temperature'] = new_i_temperatures
     ids_dict['profiles_1d']['ion[1].temperature'] = new_i_temperatures
 
-
     if extra_boundary_instructions['method ne']:
         new_e_densities = []
         for rho, e_density, index in zip(rhos, e_densities, range(len(rhos))):
@@ -3284,6 +3362,7 @@ def update_times_profile(old_times, new_times, old_profile):
 
     return profiles_new
 
+
 def update_q(q_old, rho, volumes, ips, b0s, r0, mult):
 
     mu0 = 4*np.pi*1.0e-7
@@ -3304,16 +3383,98 @@ def update_q(q_old, rho, volumes, ips, b0s, r0, mult):
 
     return np.asarray(q_new)
 
+# ------------- WORK IN PROGRESS ----------------
+'''
+Using a x^4 profile for the q profile, using mult as q0 and keeping q95 fixed.
+'''
+
+def create_hollow_q_power4(q_old, rho, mult):
+
+    q_new = []
+    for q_slice, rho_slice in zip(q_old, rho):
+
+        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+        q95 = q_slice[index_rho_95]
+
+        if q95 > 0:
+            a = (q95 - mult)/0.81450625
+            q_slice_new = rho_slice*rho_slice*rho_slice*rho_slice*a + mult
+        else:
+            a = (q95 + mult)/0.81450625
+            q_slice_new = rho_slice*rho_slice*rho_slice*rho_slice*a - mult
+
+        q_new.append(q_slice_new)
+
+    return np.asarray(q_new)
+
+
+def create_hollow_q_power3(q_old, rho, mult):
+
+    q_new = []
+    for q_slice, rho_slice in zip(q_old, rho):
+
+        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+        q95 = q_slice[index_rho_95]
+
+        if q95 > 0:
+            a = (q95 - mult)/0.857375
+            q_slice_new = rho_slice*rho_slice*rho_slice*a + mult
+        else:
+            a = (q95 + mult)/0.857375
+            q_slice_new = rho_slice*rho_slice*rho_slice*a - mult
+
+        q_new.append(q_slice_new)
+
+    return np.asarray(q_new)
+
+def create_hollow_q_power2(q_old, rho, volumes, ips, b0s, r0, mult):
+
+    q_new = []
+    for q_slice, rho_slice in zip(q_old, rho):
+
+        index_rho_95 = np.abs(rho_slice - 0.95).argmin(0)
+        q95 = q_slice[index_rho_95]
+
+        if q95 > 0:
+            a = (q95 - mult)/0.9025
+            q_slice_new = rho_slice*rho_slice*a + mult
+        else:
+            a = (q95 + mult)/0.9025
+            q_slice_new = rho_slice*rho_slice*a - mult
+
+        q_new.append(q_slice_new)
+
+    return np.asarray(q_new)
+
+
+# -----------------------------------------------
+
+
 def update_q_hollowness(q_old, rho, mult):
 
     # Changing the q profile both in equilibrium and core profiles
     q_new = []
     for q_slice, rho_slice in zip(q_old, rho):
         q_flat = q_slice[-1]
-        if q_flat > 0:
-            q_slice_new = q_flat-(abs(mult)*(q_flat-1))+abs(mult)*(q_flat-1)*rho_slice*rho_slice
-        else:
-            q_slice_new = q_flat-(abs(mult)*(q_flat+1))+abs(mult)*(q_flat+1)*rho_slice*rho_slice
+        if mult > -1:
+            #if q_flat > 0:
+            #    q_slice_new = q_flat-(abs(mult)*(q_flat-1))+abs(mult)*(q_flat-1)*rho_slice
+            #else:
+            #    q_slice_new = q_flat-(abs(mult)*(q_flat+1))+abs(mult)*(q_flat+1)*rho_slice
+            if q_flat > 0:
+                q_slice_new = q_flat-(abs(mult)*(q_flat-1))+abs(mult)*(q_flat-1)*rho_slice*np.sqrt(rho_slice)
+            else:
+                q_slice_new = q_flat-(abs(mult)*(q_flat+1))+abs(mult)*(q_flat+1)*rho_slice*np.sqrt(rho_slice)
+        elif mult > -2:
+            if q_flat > 0:
+                q_slice_new = q_flat-(abs(mult+1)*(q_flat-1))+abs(mult+1)*(q_flat-1)*rho_slice*rho_slice
+            else:
+                q_slice_new = q_flat-(abs(mult+1)*(q_flat+1))+abs(mult+1)*(q_flat+1)*rho_slice*rho_slice
+        elif mult > -3:
+            if q_flat > 0:
+                q_slice_new = q_flat-(abs(mult+2)*(q_flat-1))+abs(mult+2)*(q_flat-1)*rho_slice*rho_slice*rho_slice
+            else:
+                q_slice_new = q_flat-(abs(mult+2)*(q_flat+1))+abs(mult+2)*(q_flat+1)*rho_slice*rho_slice*rho_slice
 
         q_new.append(q_slice_new)
 
@@ -3359,11 +3520,16 @@ def alter_q_profile_same_q95(db, shot, run, run_target, db_target = None, shot_t
     q_old_cp, rho_cp = ids_dict['profiles_1d']['q'], ids_dict['profiles_1d']['grid.rho_tor_norm']
 
     if mult > 0:
-        ids_dict['profiles_1d']['profiles_1d.q'] = update_q(q_old_eq, rho_eq, volumes_eq, ips_eq, b0s_eq, r0, mult)
-        ids_dict['profiles_1d']['q'] = update_q(q_old_cp, rho_cp, volumes_cp, ips_cp, b0s_cp, r0, mult)
+        ids_dict['profiles_1d']['profiles_1d.q'] = create_hollow_q_power2(q_old_eq, rho_eq, mult)
+        ids_dict['profiles_1d']['q'] = create_hollow_q_power2(q_old_cp, rho_cp, mult)
+
+        #ids_dict['profiles_1d']['profiles_1d.q'] = update_q(q_old_eq, rho_eq, volumes_eq, ips_eq, b0s_eq, r0, mult)
+        #ids_dict['profiles_1d']['q'] = update_q(q_old_cp, rho_cp, volumes_cp, ips_cp, b0s_cp, r0, mult)
     else:  #Could use 0 to set a flat q profile
         ids_dict['profiles_1d']['profiles_1d.q'] = update_q_hollowness(q_old_eq, rho_eq, mult)
         ids_dict['profiles_1d']['q'] = update_q_hollowness(q_old_cp, rho_cp, mult)
+
+
 
     ids_data.ids_dict = ids_dict
     ids_data.fill_ids_struct()
@@ -3581,7 +3747,6 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     old_times_summary = ids_dict['time']['summary']
     old_times_equilibrium = ids_dict['time']['equilibrium']
     new_times_core_profiles = old_times_core_profiles[:]
-
 
     def create_new_time_steps(old_times):
         new_times = old_times[:]
@@ -4006,8 +4171,9 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
     if not username_target: username_target = username
     if not db_target: db_target = db
     if not shot_target: shot_target = shot
-    if not backend: backend = get_backend(db, shot, run)
+    if not backend: backend = get_backend(db, shot, run, username = username)
 
+    username_personal = getpass.getuser()
     # open input pulsefile and create output one
 
     # path hardcoded for now, not ideal but avoids me to insert the version everytime. Might improve later
@@ -4054,7 +4220,7 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
             ids = idss_in.__dict__[name]
 
             stdout = sys.stdout
-            sys.stdout = open('/afs/eufus.eu/user/g/' + username + '/warnings_imas.txt', 'w') # suppress warnings
+            sys.stdout = open('/afs/eufus.eu/user/g/' + username_personal + '/warnings_imas.txt', 'w') # suppress warnings
             ids.get(i)
 #            sys.stdout = stdout
             ids.setExpIdx(idx)
@@ -4064,6 +4230,15 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
 
     idss_in.close()
     #idss_out.close()
+
+
+# --------------------------------- CUSTOM ERRORS -----------------------------------
+
+class MissingDataError(Exception):
+    def __init__(self, message="This error will stop the preparation of the IDS when there is no data in the selected interval."):
+        self.message = message
+        super().__init__(self.message)
+
 
 # -------------------------------- LISTS OF KEYS -------------------------------------
 
@@ -4198,31 +4373,31 @@ keys_list['profiles_1d']['core_sources'] = [
     'total#total_ion_energy',
     'total#j_parallel',
     'total#momentum_tor',
-    'total#ion[].particles',
+#    'total#ion[].particles',
     'total#grid.rho_tor_norm',
     'nbi#electrons.energy',
     'nbi#total_ion_energy',
     'nbi#j_parallel',
     'nbi#momentum_tor',
-    'nbi#ion[].particles',
+#    'nbi#ion[].particles',
     'nbi#grid.rho_tor_norm',
     'ec#electrons.energy',
     'ec#total_ion_energy',
     'ec#j_parallel',
     'ec#momentum_tor',
-    'ec#ion[].particles',
+#    'ec#ion[].particles',
     'ec#grid.rho_tor_norm',
     'lh#electrons.energy',
     'lh#total_ion_energy',
     'lh#j_parallel',
     'lh#momentum_tor',
-    'lh#ion[].particles',
+#    'lh#ion[].particles',
     'lh#grid.rho_tor_norm',
     'ic#electrons.energy',
     'ic#total_ion_energy',
     'ic#j_parallel',
     'ic#momentum_tor',
-    'ic#ion[].particles',
+#    'ic#ion[].particles',
     'ic#grid.rho_tor_norm'
 ]
 
@@ -4262,11 +4437,5 @@ profile_tag_list = {
 
 if __name__ == "__main__":
 
-    #setup_input('tcv', 64965, 5, 1500, json_dict, time_start = 0, time_end = 100, verbose = False, core_profiles = None, equilibrium = None)
-    copy_ids_entry('g2mmarin', 'tcv', 64965, 1010, 64965, 1, backend = 'hdf5')
-
-
-
-
-
+    print('Tool to automatically manipulate the inputs of a simulation')
 
