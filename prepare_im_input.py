@@ -3427,7 +3427,8 @@ def create_hollow_q_power3(q_old, rho, mult):
 
     return np.asarray(q_new)
 
-def create_hollow_q_power2(q_old, rho, volumes, ips, b0s, r0, mult):
+
+def create_hollow_q_power2(q_old, rho, mult):
 
     q_new = []
     for q_slice, rho_slice in zip(q_old, rho):
