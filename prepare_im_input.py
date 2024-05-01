@@ -3611,7 +3611,7 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
 
             ids_dict['profiles_1d'][key] = new_profiles
 
-    elif dict_key == 'electrons_density':
+    elif dict_key == 'electrons.density':
         density_keys = ['electrons.density', 'electrons.density_thermal']
         for key in density_keys:
 
