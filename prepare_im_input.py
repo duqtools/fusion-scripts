@@ -3838,9 +3838,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     x = new_rho_tor_norm[0]
     '''
 
-    # Should not be like this
-    #for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
-    for variable in ['electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
+    for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
 
         old_profiles = ids_dict['profiles_1d'][variable]
         if variable == 'electrons.density_thermal' or variable == 'electrons.density':
@@ -3989,10 +3987,6 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     ids_data.update_times(new_times_core_profiles, ['core_profiles'])
     # Maybe it does not work, especially if the coordinates start to merge. Testing
     ids_data.update_times(new_times_equilibrium, ['equilibrium'])
-
-    # Should be removed
-    ids_dict['profiles_1d']['electrons.density_thermal'] = ids_dict['profiles_1d']['electrons.density']
-    new_profiles['electrons.density_thermal'] = ids_dict['profiles_1d']['electrons.density_thermal']
 
     # Adding the option of normalizing the initial density to the initial line average density (which might or might not be extrapolated)
     if extra_early_options['normalize density to line ave']:
