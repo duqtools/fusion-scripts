@@ -26,6 +26,12 @@ from IPython import display
 import xml.sax
 import xml.sax.handler
 
+try:
+    import setup_nbi_input
+except ImportError:
+    print('setup_input_nbi not present, might cause problems when trying to setup the nbi')
+
+
 '''
 The tools in this script are useful to:
 
@@ -291,10 +297,6 @@ class IntegratedModellingRuns:
 
     def setup_create_compare(self, verbose = False):
 
-
-        # Could use the list directly but this should be more readable. instructions_list needs to be a list of six values, connected with the instructions
-        # Put checks on the list to make sure that is fool proof
-
         if self.instructions['setup base']:
             self.setup_input_baserun(verbose = False)
         if self.instructions['setup sens']:
@@ -331,6 +333,7 @@ class IntegratedModellingRuns:
 
         self.core_profiles, self.equilibrium = prepare_im_input.setup_input(self.db, self.shot, self.run_input, self.run_start, json_input = self.json_input, time_start = self.time_start, time_end = self.time_end, force_input_overwrite = self.force_input_overwrite, core_profiles = self.core_profiles, equilibrium = self.equilibrium)
 
+        print('input generated correctly')
 
     def create_baserun(self):
     
@@ -340,7 +343,7 @@ class IntegratedModellingRuns:
         The type of the baserun will determine which kind of runs the sensitivity should be carried out from. Default options are given
     
         '''
-  
+
         os.chdir(self.path)
 
         if os.path.exists(self.path_generator):
@@ -396,7 +399,7 @@ class IntegratedModellingRuns:
                     imp_relative_density = 1.0
                     first_imp_density = imp_density
                 else:
-                    imp_relative_density = first_imp_density/imp_density
+                    imp_relative_density = imp_density/first_imp_density
 
                 imp_data.append([imp_relative_density, a_ion, z_bundle, z_ion])
 
@@ -555,7 +558,7 @@ class IntegratedModellingRuns:
         os.chdir(self.path + self.baserun_name)
         print('running ' + self.baserun_name)
         os.system('sbatch ./.llcmd')
-    
+
 
     def get_r0_b0(self):
 
@@ -587,6 +590,30 @@ class IntegratedModellingRuns:
         return b0, r0
 
     
+    def setup_ibtsign(self, b0, extranamelist, config):
+
+        ip_from_ids = read_jettoin_line(self.path_baserun + '/jetto.in', '  IDSPULSESCHEDIN_IPL')
+        if ip_from_ids is not None: ip_from_ids = int(ip_from_ids[0])
+
+        if ip_from_ids:
+            current = self.equilibrium.time_slice[0].global_quantities.ip
+        else:
+            current = read_jettoin_line(self.path_baserun + '/jetto.in', '  CURTI')[0]
+
+        if (b0 > 0 and current < 0) or (b0 < 0 and current > 0):
+            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['1'])
+        else:
+            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['-1'])
+
+        if 'interpretive' not in self.path_generator:
+            if (b0 > 0 and current < 0) or (b0 < 0 and current > 0):
+                config['ibtsign'] = 1
+            else:
+                config['ibtsign'] = -1
+
+        return extranamelist, config
+
+
     def setup_jetto_simulation(self):
     
         '''
@@ -627,11 +654,6 @@ class IntegratedModellingRuns:
             add_item_lookup('rmj', 'EquilEscoRefPanel.refMajorRadius', 'NLIST1', 'real', 'scalar', self.path_baserun)
             add_item_lookup('ibtsign', 'null', 'NLIST1', 'int', 'scalar', self.path_baserun)
 
-        if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
-            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['1'])
-        else:
-            extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['-1'])
-
         put_extraname_fields(self.path_baserun, extranamelist)
 
         # A temporary function to handle arrays since the pythontools do not do it yet. When the option comes online again use that.
@@ -639,11 +661,7 @@ class IntegratedModellingRuns:
         template = jetto_tools.template.from_directory(self.path_baserun)
         config = jetto_tools.config.RunConfig(template)
 
-        if 'interpretive' not in self.path_generator:
-            if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
-                config['ibtsign'] = 1
-            else:
-                config['ibtsign'] = -1
+        extranamelist, config = self.setup_ibtsign(b0, extranamelist, config)        
 
         if 'interpretive' not in self.path_generator:
             config['btin'] = abs(b0)
@@ -709,10 +727,13 @@ class IntegratedModellingRuns:
         if not self.boundary_conditions:
             # Saves the boundary conditions in lists
             core_profiles = open_and_get_ids(self.db, self.shot, self.run_start, 'core_profiles')
+            self.boundary_conditions['te'] = []
+            self.boundary_conditions['ti'] = []
+            self.boundary_conditions['ne'] = []
             for profile_1d in core_profiles.profiles_1d:
                 self.boundary_conditions['te'].append(profile_1d.electrons.temperature[-1])
-                self.boundary_conditions['ti'].append(profile_1d.ions[0].temperature[-1])
-                self.boundary_conditions['ne'].append(profile_1d.electrons.density[-1])
+                self.boundary_conditions['ti'].append(profile_1d.ion[0].temperature[-1])
+                self.boundary_conditions['ne'].append(profile_1d.electrons.density[-1]*1e-6)
 
             self.boundary_conditions['times'] = core_profiles.time.tolist()
 
@@ -1004,7 +1025,7 @@ class IntegratedModellingRuns:
                 read_data.append(line)
     
         # Could also use a list here as well, but just trying now
-        index_btin, index_nlist1, index_nlist4 = 0, 0, 0
+        index_btin, index_nlist1, index_nlist4, index_ibtsign = 0, 0, 0, 0
 
         original_num_tprint = 1
 
@@ -1038,6 +1059,8 @@ class IntegratedModellingRuns:
                 index_nlist4 = index
             elif line[:8] == ' &NLIST1':
                 index_nlist1 = index
+            elif line[:8] == ' IBTSIGN':
+                index_ibtsign = index
 
         for index, line in enumerate(read_data):
             for jetto_name in jetto_in_nameslist:
@@ -1079,16 +1102,19 @@ class IntegratedModellingRuns:
 
         # SOMETHING CHANGED IN THE LAST VERSION, DEBUGGING
 
-        if ibtsign == 1:
-            read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
-        elif ibtsign == -1 :
-            read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
+        if index_ibtsign == 0:
+            if ibtsign == 1:
+                read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
+            elif ibtsign == -1 :
+                read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
+        else:
+            if ibtsign == 1:
+                read_data[index_btin] = '  IBTSIGN  =  1        ,'  + '\n'
+            elif ibtsign == -1 :
+                read_data[index_btin] = '  IBTSIGN  =  -1       ,'  + '\n'
 
         #if ibtsign == -1 :
         #    read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
-
-
-
 
         if self.line_ave_density is not None:
             # -------------- First delete lines if they are already there -----------------
@@ -1148,7 +1174,7 @@ class IntegratedModellingRuns:
         # ALFP, ALFINW might need to be modified as well
 
         jetto_in_multiline_nameslist = {
-            '  ALFI': imp_density,
+            '  ALFI ': imp_density,
             '  ATMI': imp_mass,
             '  NZEQ': imp_super,
             '  ZIPI': imp_charge,
@@ -1166,7 +1192,7 @@ class IntegratedModellingRuns:
         # for item in jetto_in_multiline_nameslist:
         # change_jetto_in_multiline(item)
 
-        imp_data = {'  ALFI': imp_density,
+        imp_data = {'  ALFI ': imp_density,
                     '  ATMI': imp_mass, 
                     '  NZEQ': imp_super, 
                     '  ZIPI': imp_charge
@@ -1596,6 +1622,26 @@ def create_single_line_jettosin(line_start, numbers_line):
 
     return line
 
+
+def read_jettoin_line(path_jetto_in, line_start):
+
+    lines, values = [], None
+    with open(path_jetto_in) as f:
+        lines_file = f.readlines()
+        for line in lines_file:
+            lines.append(line)
+
+    for line in lines:
+        if line.startswith(line_start):
+            values = line.split('=')[1]
+
+    if values:
+        values = values.split(',')
+        values = [float(value) for value in values[:-1]]
+
+    return values
+
+
 def read_puff_jettosin(path_jetto_sin):
 
     field_values = '  SPEFLX'
@@ -1611,6 +1657,7 @@ def read_puff_jettosin(path_jetto_sin):
             puff_value = float(line[14:].split(',')[0])
 
     return puff_value
+
 
 def modify_jettoin_time_polygon(path_jetto_in, time_start, time_end):
 
@@ -1830,6 +1877,51 @@ def put_extraname_fields(path, extranamelist):
     modify_jset_line(path, 'OutputExtraNamelist.selItems.rows', str(ilist))
     
 
+def correct_isotope_composition(run_name):
+
+    line_start_jettoin = '  DNFRAC ='
+    line_start_jset = 'EquationsPanel.ionDens[0].fraction'
+    value = read_jset_line(run_name, line_start_jset)
+    values = [value, str(1 - float(value))]
+
+    line_start_jset = 'EquationsPanel.ionDens[1].fraction'
+    modify_jset_line(run_name, line_start_jset, values[1])
+    values = [float(value) for value in values]
+    modify_jettoin_line(run_name, line_start_jettoin, values)
+
+
+def correct_isotope_composition_all(folder_path):
+
+    # Get a list of all subfolders in the specified folder
+    subfolders = [f.path for f in os.scandir(folder_path) if f.is_dir()]
+
+    for subfolder in subfolders:
+        last_level = subfolder.split('/')[-1]
+        if last_level.startswith('run_'):
+            correct_isotope_composition(subfolder)
+
+
+def read_jset_line(run_name, line_start):
+
+
+    '''
+
+    Reads the value of a line starting with 'line start'
+
+    '''
+    value = None
+
+    with open(run_name + '/' + 'jetto.jset') as f:
+        lines = f.readlines()
+
+        for line in lines:
+            if line.startswith(line_start):
+                value = line.split(':')[1]
+
+    value = value[:-1]
+
+    return value
+
 #  This function is just for testing, can be deleted later
 def get_put_namelist(path):
 
@@ -1998,7 +2090,6 @@ def modify_jettoin_line(run_name, line_start, new_content):
                     else:
                         read_data[index] = line_start + new_content
 
-
     with open(run_name + '/' + 'jetto.in', 'w') as f:
         for line in read_data:
             f.writelines(line)
@@ -2141,7 +2232,7 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
-def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, add_extra_transport_flag = False):
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, db = 'tcv', misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, add_extra_transport_flag = False, density_feedback = True):
 
     run_number = first_number
     if not misallignements:
@@ -2157,7 +2248,7 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
 
         json_input['misalignment']['schema'] = misallignement
 
-        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, density_feedback = True, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, db = db, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, density_feedback = density_feedback, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
 
         try:
             run_test.setup_create_compare()
@@ -2166,6 +2257,8 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
             print('No experimental data is available to set the run for shot ' + str(shot_number))
             continue
 
+    # Need to explicitly clear this or it will survive even outside the function
+    boundary_conditions.clear()
 
 if __name__ == "__main__":
 
