@@ -1109,9 +1109,9 @@ class IntegratedModellingRuns:
                 read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
         else:
             if ibtsign == 1:
-                read_data[index_btin] = '  IBTSIGN  =  1        ,'  + '\n'
+                read_data[index_ibtsign] = '  IBTSIGN  =  1        ,'  + '\n'
             elif ibtsign == -1 :
-                read_data[index_btin] = '  IBTSIGN  =  -1       ,'  + '\n'
+                read_data[index_ibtsign] = '  IBTSIGN  =  -1       ,'  + '\n'
 
         #if ibtsign == -1 :
         #    read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
