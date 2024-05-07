@@ -184,6 +184,7 @@ class IntegratedModellingRuns:
         setup_time_polygon_flag = False,
         change_impurity_puff_flag = False,
         setup_time_polygon_impurities_flag = False,
+        select_impurities_from_ids_flag = True,
         add_extra_transport_flag = False,
         setup_nbi_flag = False,
         path_nbi_config = None,
@@ -215,6 +216,7 @@ class IntegratedModellingRuns:
         self.setup_time_polygon_flag = setup_time_polygon_flag
         self.change_impurity_puff_flag = change_impurity_puff_flag
         self.setup_time_polygon_impurities_flag = setup_time_polygon_impurities_flag
+        self.select_impurities_from_ids_flag = select_impurities_from_ids_flag
         self.add_extra_transport_flag = add_extra_transport_flag
         self.setup_nbi_flag = setup_nbi_flag
         self.path_nbi_config = path_nbi_config
@@ -385,26 +387,6 @@ class IntegratedModellingRuns:
         if self.density_feedback == True:
             self.get_feedback_on_density_quantities()        
 
-        # This should not be needed and should be handled by the jetto_tools. It's not though...
-        # This is untested and might break
-        imp_data = []
-        first_imp_density = None
-        for ion in self.core_profiles.profiles_1d[0].ion:
-            imp_density = np.average(ion.density)
-            z_ion = ion.element[0].z_n
-            a_ion = ion.element[0].a
-            z_bundle = round(z_ion)
-            if z_ion > 1:
-                if not first_imp_density:
-                    imp_relative_density = 1.0
-                    first_imp_density = imp_density
-                else:
-                    imp_relative_density = imp_density/first_imp_density
-
-                imp_data.append([imp_relative_density, a_ion, z_bundle, z_ion])
-
-#        imp_data = [[1.0, 12.0, 6, 6.0]]
-
         if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
             ibtsign = 1
         else:
@@ -414,6 +396,13 @@ class IntegratedModellingRuns:
             interpretive_flag = False
         else:
             interpretive_flag = True
+
+        imp_data = None
+        if self.select_impurities_from_ids_flag:
+            imp_data_ids = self.select_impurities_from_ids()
+
+            self.modify_jetto_in_impurities(imp_data_ids)
+            self.modify_impurities_jset(imp_data_ids)
 
         # Still cannot run with positive current...
         self.modify_jetto_in(self.baserun_name, r0, abs(b0), self.time_start, self.time_end, imp_datas_ids = imp_data, num_times_print = self.output_timesteps, num_times_eq = self.esco_timesteps, ibtsign = ibtsign, interpretive_flag = interpretive_flag)
@@ -426,7 +415,6 @@ class IntegratedModellingRuns:
 
         if self.set_sep_boundaries:
             self.setup_boundary_values()
-
 
         self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, abs(b0), r0)
         #self.modify_jset(self.path, self.baserun_name, self.run_start, self.run_output, b0, r0)
@@ -452,8 +440,37 @@ class IntegratedModellingRuns:
         if self.setup_time_polygon_impurities_flag:
             self.setup_time_polygon_impurity_puff()
 
-        # Selecting the impurity correctly in the jset
+        modify_llcmd(self.baserun_name, self.generator_name, self.generator_username)
 
+        if self.backend_input == imasdef.MDSPLUS_BACKEND:
+            self.copy_ids_input_mdsplus()
+        elif self.backend_input == imasdef.HDF5_BACKEND:
+            self.copy_ids_input_hdf5()
+
+    def select_impurities_from_ids(self):
+
+        # This should not be needed and should be handled by the jetto_tools. It's not though...
+        imp_data = []
+        first_imp_density = None
+        for ion in self.core_profiles.profiles_1d[0].ion:
+            imp_density = np.average(ion.density)
+            z_ion = ion.element[0].z_n
+            a_ion = ion.element[0].a
+            z_bundle = round(z_ion)
+            if z_ion > 1:
+                if not first_imp_density:
+                    imp_relative_density = 1.0
+                    first_imp_density = imp_density
+                else:
+                    imp_relative_density = imp_density/first_imp_density
+
+                imp_data.append([imp_relative_density, a_ion, z_bundle, z_ion])
+
+        return imp_data
+
+
+    def modify_impurities_jset(self, imp_data):
+        # Selecting the impurity correctly in the jset
         impurity_jset_linestarts = ['ImpOptionPanel.impuritySelect[]',
                                     'ImpOptionPanel.impurityMass[]',
                                     'ImpOptionPanel.impurityCharge[]',
@@ -479,14 +496,7 @@ class IntegratedModellingRuns:
                 new_content = 'false'
                 modify_jset_line(self.baserun_name, line_start, new_content)
 
-        modify_llcmd(self.baserun_name, self.generator_name, self.generator_username)
 
-        if self.backend_input == imasdef.MDSPLUS_BACKEND:
-            self.copy_ids_input_mdsplus()
-        elif self.backend_input == imasdef.HDF5_BACKEND:
-            self.copy_ids_input_hdf5()
-
-    # This will work with MDSPLUS. Should code something else for HDF5
     def copy_ids_input_mdsplus(self):
 
         if self.run_start < 10:
@@ -679,10 +689,11 @@ class IntegratedModellingRuns:
         config.end_time = self.time_end
 
         # I could introduce a way not to do this if there are no impurities. Need to add impurities if not there, modifying the various files. Maybe in the future. For now I modify the jset anyway so this part does nothing...
-   
-        config['atmi'] = 6.0
-        config['nzeq'] = 12.0
-        config['zipi'] = 6
+ 
+        if self.db == 'tcv':  
+            config['atmi'] = 6.0
+            config['nzeq'] = 12.0
+            config['zipi'] = 6
 
         config.export(self.path_baserun + 'tmp')
         shutil.copyfile(self.path_baserun + 'tmp' + '/jetto.jset', self.path_baserun + '/jetto.jset')
@@ -994,13 +1005,7 @@ class IntegratedModellingRuns:
             modify_jset_line(run_name, line_start, new_content)
 
 
-    def modify_jetto_in(self, sensitivity_name, r0, b0, time_start, time_end, num_times_print = None, num_times_eq = None, imp_datas_ids = [[1.0, 12.0, 6, 6.0]], ibtsign = 1, interpretive_flag = False):
-
-        '''
-    
-        modifies the jset file to accomodate a new run name. Default impurity is carbon
-    
-        '''
+    def modify_jetto_in_impurities(self, imp_datas_ids):
 
         imp_datas = []
         for index in range(7):
@@ -1016,6 +1021,50 @@ class IntegratedModellingRuns:
             imp_mass += str(imp_datas[index][1]) + '      ,  '
             imp_super += str(imp_datas[index][2]) + '      ,  '
             imp_charge += str(imp_datas[index][3]) + '      ,  '
+
+        if imp_datas_ids:
+            jetto_in_nameslist = {
+                '  NIMP': str(len(imp_datas_ids))
+            }
+
+        imp_data = {'  ALFI ': imp_density,
+            '  ATMI': imp_mass,
+            '  NZEQ': imp_super,
+            '  ZIPI': imp_charge
+        }
+
+        read_data = []
+        with open(self.path_baserun + '/' + 'jetto.in') as f:
+            lines = f.readlines()
+            for line in lines:
+                read_data.append(line)
+
+        for index, line in enumerate(read_data):
+            for jetto_name in jetto_in_nameslist:
+                if line.startswith(jetto_name):
+                    read_data[index] = read_data[index][:14] + jetto_in_nameslist[jetto_name] + '    ,'  + '\n'
+
+        for line_start in imp_data:
+            print_start = 0
+            for index, line in enumerate(read_data):
+                if line.startswith(line_start):
+                    print_start = index
+                    read_data[index] = read_data[index][:14] + imp_data[line_start]  + '\n'
+                if line[:6].startswith('      ') and print_start != 0 and index == print_start + 1:
+                    del read_data[index]
+
+        with open(self.path_baserun + '/' + 'jetto.in', 'w') as f:
+            for line in read_data:
+                f.writelines(line)
+
+
+    def modify_jetto_in(self, sensitivity_name, r0, b0, time_start, time_end, num_times_print = None, num_times_eq = None, imp_datas_ids = None, ibtsign = 1, interpretive_flag = False):
+
+        '''
+    
+        modifies the jset file to accomodate a new run name. Default impurity is carbon
+    
+        '''
 
         read_data = []
     
@@ -1040,8 +1089,6 @@ class IntegratedModellingRuns:
             '  TMAX': str(time_end),
             '  MACHID': '\'' + self.db + '\'',
             '  NPULSE': str(self.shot),
-            '  NIMP': str(len(imp_datas_ids))
-            #'  NIMP': '1'  # Needs to be changed
         }
 
         if num_times_print != None:
@@ -1059,7 +1106,7 @@ class IntegratedModellingRuns:
                 index_nlist4 = index
             elif line[:8] == ' &NLIST1':
                 index_nlist1 = index
-            elif line[:8] == ' IBTSIGN':
+            elif line[:9] == '  IBTSIGN':
                 index_ibtsign = index
 
         for index, line in enumerate(read_data):
@@ -1169,47 +1216,20 @@ class IntegratedModellingRuns:
             if line[:6] == '      ' and tprint_start != 0 and index > tprint_start and index < tprint_start +10:
                 read_data[index] = '             ' + '\n'
 
-
-        # Could simplify   
-        # ALFP, ALFINW might need to be modified as well
-
-        jetto_in_multiline_nameslist = {
-            '  ALFI ': imp_density,
-            '  ATMI': imp_mass,
-            '  NZEQ': imp_super,
-            '  ZIPI': imp_charge,
-        }
-
-        def change_jetto_in_multiline(item):
-            print_start = 0
-            for index, line in enumerate(read_data):
-                if line.startswith(item[0]):
-                    print_start = index
-                    read_data[index] = read_data[index][:14] + item[1]  + '\n'
-                if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
-                    del read_data[index]
-        
-        # for item in jetto_in_multiline_nameslist:
-        # change_jetto_in_multiline(item)
-
-        imp_data = {'  ALFI ': imp_density,
-                    '  ATMI': imp_mass, 
-                    '  NZEQ': imp_super, 
-                    '  ZIPI': imp_charge
-                   }
-
-        for line_start in imp_data:
-            print_start = 0
-            for index, line in enumerate(read_data):
-                if line.startswith(line_start):
-                    print_start = index
-                    read_data[index] = read_data[index][:14] + imp_data[line_start]  + '\n'
-                if line[:6].startswith('      ') and print_start != 0 and index == print_start + 1:
-                    del read_data[index]
-
         with open(sensitivity_name + '/' + 'jetto.in', 'w') as f:
             for line in read_data:
                 f.writelines(line)
+
+
+    #This is kept for legacy, jetto in now supports arrays
+    def change_jetto_in_multiline(item):
+        print_start = 0
+        for index, line in enumerate(read_data):
+            if line.startswith(item[0]):
+                print_start = index
+                read_data[index] = read_data[index][:14] + item[1]  + '\n'
+            if line[:6] == '      ' and print_start != 0 and index == print_start + 1:
+                del read_data[index]
 
 
     def setup_nbi(self, path_nbi_config = '/afs/eufus.eu/user/g/g2mmarin/public/tcv_inputs/jetto.nbicfg'):
@@ -2232,7 +2252,7 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
-def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, db = 'tcv', misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, add_extra_transport_flag = False, density_feedback = True):
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, db = 'tcv', misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, select_impurities_from_ids_flag = True, add_extra_transport_flag = False, density_feedback = True):
 
     run_number = first_number
     if not misallignements:
@@ -2248,7 +2268,7 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
 
         json_input['misalignment']['schema'] = misallignement
 
-        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, db = db, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, density_feedback = density_feedback, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, db = db, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, select_impurities_from_ids_flag = select_impurities_from_ids_flag, density_feedback = density_feedback, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
 
         try:
             run_test.setup_create_compare()
