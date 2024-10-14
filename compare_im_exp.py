@@ -34,7 +34,7 @@ if imas is not None:
     vsplit = imas.names[0].split("_")
     imas_version = version.parse(".".join(vsplit[1:4]))
     ual_version = version.parse(".".join(vsplit[5:]))
-    imas_backend = imasdef.MDSPLUS_BACKEND
+    imas_backend = imasdef.HDF5_BACKEND
     if imas_version < MIN_IMAS_VERSION:
         raise ImportError("IMAS version must be >= %s! Aborting!" % (MIN_IMAS_VERSION))
     if ual_version < MIN_IMASAL_VERSION:
@@ -49,7 +49,7 @@ def input():
     ---
     Examples:\n
     python compare_im_exp.py --db tcv --shot 64965 --run_exp 5 --run_model run010_64965_ohmic_predictive --time_begin 0.1 --time_end 0.3 --signals te ne --error_type 'absolute' 
-    python compare_im_exp.py --db tcv --shot 64965 --run_exp 5 --run_model run010_64965_ohmic_predictive --time_begin 0.1 --time_end 0.3 --signals te ne --username = 'g2mmarin' --label = 'QuaLiKiz' --verbose = 0 --fit_or_model 'Model' --show_fit --apply_special_filter --error_type 'absolute'
+    python compare_im_exp.py --db tcv --shot 64965 --run_exp 5 --run_model run010_64965_ohmic_predictive --time_begin 0.1 --time_end 0.3 --signals te ne --username 'g2mmarin' --label 'QuaLiKiz' --verbose 0 --fit_or_model 'Model' --show_fit --apply_special_filter --error_type 'absolute'
     ---
     """,
     epilog="",
@@ -63,16 +63,26 @@ def input():
     parser.add_argument("--time_begin",                     type=float, default=None,                                 help="Slice shot file beginning at time (s)")
     parser.add_argument("--time_end",                       type=float, default=None,                                 help="Slice shot file ending at time (s)")
     parser.add_argument("--username",                       type=str,   default=None,                                 help="Username of the owner of input IDSs and runs")
+    parser.add_argument("--shot_model",                     type=int,   default=None,                                 help="Shot for the model to be used when exp and model are not the same shot")
     parser.add_argument("--label",                          type=str,   default=None,                                 help="Label to be put on the plot")
     parser.add_argument("--verbose",                        type=int,   default=1,                                    help="Verbose option, 2 for profile, 1 time, 0 silent")
-    parser.add_argument("--show_fit",                                   default=False, action='store_true',           help="Shows fit on top of modelling results")
+    parser.add_argument("--show_fit",                                   default=False,  action='store_true',          help="Shows fit on top of modelling results")
     parser.add_argument("--error_type",                     type=str,   default='absolute',                           help="Decides which metric to use for the errors")
     parser.add_argument("--apply_special_filter",                       default=False, action='store_true',           help="Eliminates outliers errors. Or at least tries")
-    parser.add_argument("--fit_or_model",                               default=False, action='store_true',           help="Shows fit instead of modelling results")
+    parser.add_argument("--fit_or_model",                   type=str,   default='Model',                              help="Shows fit instead of modelling results")
 
     args=parser.parse_args()
 
     return args
+
+
+title_fontsize = 17
+label_fontsize = 15
+legend_fontsize = 13
+
+# Could pass it as an argument but not sure it is worth it. For now hard coded here
+#y_limit_bottom, y_limit_top = 0, 1
+y_limit_bottom, y_limit_top = None, None
 
 
 def get_title_variable(variable):
@@ -149,6 +159,12 @@ def get_variable_names_exp(signals):
             'core_profiles.profiles_1d[].ion[1].density_fit.measured',
             'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper',
             'core_profiles.profiles_1d[].ion[1].density'
+    ]
+    if 'ni6' in signals:
+        variable_names['impurity density'] = [
+            'core_profiles.profiles_1d[].ion[1].density_fit.measured',
+            'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper',
+            'core_profiles.profiles_1d[].ion[1].state[5].density_thermal'
     ]
 
     return variable_names
@@ -295,7 +311,7 @@ def filter_large_errorbars(exp_data, errorbar, var):
     elif var == 'electron density':
         max_errorbars = 2e19
     elif var == 'impurity density':
-        max_errorbars = 0.7e17
+        max_errorbars = 0.5e17
         #max_errorbars = 100e17
 
     for time in exp_data:
@@ -525,8 +541,7 @@ def get_legend_label_experimental(variable):
 
 #Show_fit does not do anazthing tight now. Will decide if I want to implement the fit as well later.\
 #It is already working in compare bundle and maybe it belongs there
-def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                        title_fontsize, label_fontsize, show_fit = False):
+def plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, show_fit = False):
     title_variable = get_title_variable(variable)
 
     for i, time in enumerate(exp_data):
@@ -558,7 +573,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
                 if error_type == 'relative':
                     error_time_space.append(abs(y_fit[0] - y_exp) / error_point)
                 if error_type == 'squared':
-                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point*error_point))
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point * error_point))
                 if error_type == 'difference':
                     error_time_space.append((y_fit[0] - y_exp) / error_point)
         else:
@@ -568,7 +583,7 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
                 if error_type == 'relative':
                     error_time_space.append(abs(y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
                 if error_type == 'squared':
-                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point*error_point) * y_volume[0]/ytable_final_volume[i][-1][0])
+                    error_time_space.append((y_fit[0] - y_exp)*(y_fit[0] - y_exp) / (error_point * error_point) * y_volume[0]/ytable_final_volume[i][-1][0])
                 if error_type == 'difference':
                     error_time_space.append((y_fit[0] - y_exp) / error_point * y_volume[0]/ytable_final_volume[i][-1][0])
 
@@ -577,30 +592,79 @@ def plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, labe
             plt.plot(exp_data[time]['x'], error_time_space, 'bo', label=legend_label)
             title_variable = get_title_variable(variable)
             title = title_variable + 'error at t =  {time:.3f}'.format(time=time)
-            plt.title(str(time))
-            plt.xlabel(r'$\rho$ [-]')
-            plt.ylabel(r'$ \sigma_{\rho} $ [-]')
+            plt.title(str(time), fontsize=title_fontsize)
+            plt.xlabel(r'$\rho$ [-]', fontsize=label_fontsize)
+            ylabel = get_y_label(error_type, variable, t_or_rho = 'rho')
+            plt.ylabel(ylabel, fontsize=label_fontsize)
             plt.xlim((0,1))
-            plt.legend()
+            plt.legend(fontsize=legend_fontsize)
             plt.show()
 
-        error_time.append(sum(error_time_space) / len(exp_data[time]['y']))
-        error_time_space_all.append(error_time_space)
+        if error_type == 'squared':
+            error_time.append(np.sqrt(sum(error_time_space) / len(exp_data[time]['y'])))
+        else:
+            error_time.append(sum(error_time_space) / len(exp_data[time]['y']))
+            error_time_space_all.append(error_time_space)
 
     if verbose == 1 or verbose == 2:
         title_variable = get_title_variable(variable)
         if not label:
             label = 'Time dependent error'
+        if y_limit_bottom:
+            plt.ylim(bottom = y_limit_bottom)
+        if y_limit_top:
+            plt.ylim(top = y_limit_top)
+
         plt.plot(time_vector_exp, error_time, label=label)
-        plt.title(title_variable)
-        plt.xlabel(r't [s]')
-        plt.ylabel(r'$ \sigma_{t} $ [-]')
-        plt.legend()
+        plt.title(title_variable, fontsize=label_fontsize)
+        plt.xlabel(r't [s]', fontsize=label_fontsize)
+        ylabel = get_y_label(error_type, variable, t_or_rho = 't')
+        plt.ylabel(ylabel, fontsize=label_fontsize)
+        plt.legend(fontsize=legend_fontsize)
         plt.show()
 
     return error_time, error_time_space_all
 
-def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, error_type = 'absolute'):
+
+def get_y_label(error_type, variable, t_or_rho = 't'):
+
+    ylabel = None
+    if error_type == 'absolute':
+        if variable == 'electron temperature' or variable == 'ion temperature':
+            ylabel = 'Distance [eV]'
+        if variable == 'electron density' or variable == 'impurity density':
+            ylabel = 'Distance [$ 10^{-19} m^{-3} $]'
+    elif error_type == 'relative':
+        ylabel = 'Relative distance [-]'
+    elif error_type == 'difference':
+        if variable == 'electron temperature' or variable == 'ion temperature':
+            ylabel = 'Difference [eV]'
+        if variable == 'electron density' or variable == 'impurity density':
+            ylabel = 'Difference [$ 10^{-19} m^{-3} $]'
+    elif error_type == 'squared':
+        if t_or_rho == 'rho':
+            ylabel = '$ \sigma_{\rho} $ [-]'
+        elif t_or_rho == 't':
+            ylabel = '$ \sigma_{t} $ [-]'
+
+    return ylabel
+
+
+def calculate_volume_layers_single(volumes):
+    volume_layers = []
+    for volume in volumes:
+        volume = volume.flatten()
+        volume_layer = [1.0e-6]
+        for volume_pre, volume_post in zip(volume[:], volume[1:]):
+            volume_layer.append(volume_post - volume_pre)
+        volume_layer = [[element] for element in volume_layer]
+
+        volume_layers.append(np.asarray(volume_layer))
+
+    return volume_layers
+
+
+def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, shot_model = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, error_type = 'absolute'):
 
     """
     Plots experimental data and model predictions, and calculates errors.
@@ -619,16 +683,13 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     :return: list of errors
     """
 
-    title_fontsize = 17
-    label_fontsize = 15
-    legend_fontsize = 13
-
     variable_names = get_variable_names_exp(signals)
 
     if not username: username = getpass.getuser()
+    if not shot_model: shot_model = shot
 
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp, username = username)
-    core_profiles_model = open_and_get_ids(db, shot, 'core_profiles', run_model, show_fit = show_fit, username = username)
+    core_profiles_model = open_and_get_ids(db, shot_model, 'core_profiles', run_model, show_fit = show_fit, username = username)
 
     t_cxrs = get_t_cxrs(core_profiles_exp)
     t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
@@ -648,6 +709,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
             exp_data, errorbar, time_vector_exp = get_exp_data_and_errorbar(all_exp_data, t_cxrs, variable)
             ytable_final_volume = None
 
+            # For TCV the volume is not correctly extracted right now. Should implement in tcv2ids2database
             if 'volume' in error_type:
                 fit_volume = get_onesig(core_profiles_model,'core_profiles.profiles_1d[].grid.volume',time_begin,time_end=time_end)
                 time_vector_fit = np.asarray(list(fit_volume.keys()))
@@ -662,14 +724,21 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
 
             # Plotting routines
             if verbose:
-                plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, legend_fontsize,
-                                    title_fontsize, label_fontsize, show_fit = show_fit)
+                plot_data_and_model(exp_data, ytable_final, errorbar, variable, fit_or_model, show_fit = show_fit)
+
+            if 'volume' in error_type:
+                ytable_final_volume = calculate_volume_layers_single(ytable_final_volume)
 
             error_type_stripped = error_type.split(' ')[0]
-            error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, 
-                                                      label, fit_or_model, verbose, ytable_final_volume = ytable_final_volume, show_fit = show_fit, error_type = error_type_stripped)
+            error_time, error_time_space = plot_error(time_vector_exp, exp_data, ytable_final, errorbar, variable, label, fit_or_model, verbose,
+                                                      ytable_final_volume = ytable_final_volume, show_fit = show_fit, error_type = error_type_stripped)
 
-            error_variable = sum(error_time)/len(exp_data)
+            error_time = np.asarray(error_time)
+
+            if error_type_stripped == 'squared':
+                error_variable = np.sqrt(sum(error_time*error_time)/len(exp_data))
+            else:
+                error_variable = sum(error_time)/len(exp_data)
 
             errors[variable] = error_variable
             errors_time[variable] = error_time
@@ -679,7 +748,7 @@ def plot_exp_vs_model(db, shot, run_exp, run_model, time_begin, time_end, signal
     return(errors, errors_time)
 
 
-def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, legend_label1 = 'model1', legend_label2 = 'model2', error_type = 'absolute'):
+def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin, time_end, signals = ['te', 'ne', 'ti', 'ni'], username = None, label = None, shot_model1 = None, shot_model2 = None, verbose = False, fit_or_model = None, show_fit = False, apply_special_filter = False, legend_label1 = 'model1', legend_label2 = 'model2', error_type = 'absolute'):
 
     """
     Plots experimental data and model predictions for two different models. Errors can be calculated with the other function, this is only to plot
@@ -705,10 +774,12 @@ def compare_exp_vs_models(db, shot, run_exp, run_model1, run_model2, time_begin,
     variable_names = get_variable_names_exp(signals)
 
     if not username: username = getpass.getuser()
+    if not shot_model1: shot_model1 = shot
+    if not shot_model2: shot_model2 = shot
 
     core_profiles_exp = open_and_get_ids(db, shot, 'core_profiles', run_exp, username = username)
-    core_profiles_model1 = open_and_get_ids(db, shot, 'core_profiles', run_model1, show_fit = show_fit, username = username)
-    core_profiles_model2 = open_and_get_ids(db, shot, 'core_profiles', run_model2, show_fit = show_fit, username = username)
+    core_profiles_model1 = open_and_get_ids(db, shot_model1, 'core_profiles', run_model1, show_fit = show_fit, username = username)
+    core_profiles_model2 = open_and_get_ids(db, shot_model2, 'core_profiles', run_model2, show_fit = show_fit, username = username)
 
     t_cxrs = get_t_cxrs(core_profiles_exp)
     t_cxrs = filter_time_range(t_cxrs, time_begin, time_end)
@@ -782,9 +853,15 @@ def get_time_begin_and_end(db, shot, run_output, time_begin, time_end):
 
     # Exclude very fast equilibrium readjusting on the first few timesteps
     if not time_begin:
-        time_begin = min(summary.time) + 0.01
+        if summary.time.any():
+            time_begin = min(summary.time) + 0.01
+        else:
+            time_begin = 100
     if not time_end:
-        time_end = max(summary.time)
+        if summary.time.any():
+            time_end = max(summary.time)
+        else:
+            time_end = 0.001
 
     return time_begin, time_end
 
@@ -821,7 +898,8 @@ def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_
     if isinstance(run, np.integer): run = int(run)
 
     if type(run) is str:
-        username = f"/pfs/work/{username}/jetto/runs/{run}/imasdb/"
+        # This was corrected. Not tested in every situation
+        username = f"/pfs/work/{username}/jetto/runs/{run}/imasdb"
 
     if show_fit:
         if not backend: backend = get_backend(db, shot, 1 if type(run) is str else run, username=username)
@@ -860,6 +938,7 @@ def main():
         time_begin=args.time_begin,
         time_end=args.time_end,
         username=args.username,
+        shot_model=args.shot_model,
         label=args.label,
         verbose=args.verbose,
         show_fit=args.show_fit,
@@ -871,9 +950,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
     print('plot and compares experimental data with fits or model')
-
-
 
 
