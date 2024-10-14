@@ -18,6 +18,8 @@ import inspect
 import types
 import pdb
 import time
+import logging
+import warnings
 
 import matplotlib.pyplot as plt
 
@@ -43,6 +45,7 @@ if imas is not None:
         raise ImportError("IMAS version must be >= %s! Aborting!" % (min_imas_version_str))
     if ual_version < version.parse(min_imasal_version_str):
         raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
+
 
 '''
 --------------- AVAILABLE FUNCTIONS: ------------------
@@ -96,16 +99,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if json_input['misalignment']['flag']:
         correct_misalligned_hrts(db, shot, run_input, run_input+1, json_input['misalignment']['schema'], backend = backend)
         run_input = run_input+1
-
-    # Boundaries instructions are read only if 'set boundaries' is true (Moved in the function itself)
-    #if json_input['instructions']['set boundaries']:
-    #    boundary_method_te = json_input['boundary instructions']['method te']
-    #    boundary_method_ti = json_input['boundary instructions']['method ti']
-    #    boundary_sep_te = json_input['boundary instructions']['te sep']
-    #    if json_input['boundary instructions']['ti sep']:
-    #        boundary_sep_ti = json_input['boundary instructions']['ti sep']
-    #    else:
-    #        boundary_sep_ti = False
+        print('correcting misallignement on index ' + str(run_input))
 
     ip = equilibrium.time_slice[0].global_quantities.ip
     b0 = equilibrium.vacuum_toroidal_field.b0
@@ -125,6 +119,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         print('rebase and average cannot be done at the same time. Aborting')
         exit()
 
+    # Some entries are created directly after run input. They are not counted here
     # Counting how many operations will be performed
     generated_idss_length = 0
     for key in json_input['instructions']:
@@ -135,6 +130,11 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
         generated_idss_length += 1
 
     if json_input['zeff profile'] != 'flat':
+        generated_idss_length += 1
+
+    # if creating dummy need to add 1. The other one is automatic since it is in instructions. Might modify later.
+    # Remember to modify if it changes how dummies works
+    if json_input['instructions']['ec heating']:
         generated_idss_length += 1
 
     # Checking that all the idss that will be used are free
@@ -192,8 +192,33 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
 
     # Updates the nbi and if needed multiplies the power for sensitivity purposes
     if json_input['instructions']['nbi heating']:
-        setup_nbi_ids(db, shot, run_input, run_start, power_multiplier = json_input['nbi options']['power multiplier'], backend = backend)
+
+        # This is secretly already imported in setup_runs, for import order reasons, but there it's setup not to give errors since it is not really needed.
+        try:
+            import setup_nbi_input
+        except ImportError:
+            print('setup_nbi_input.py is needed to setup the nbi. Please download from fusion scripts')
+            exit()
+
+        setup_nbi_input.setup_system_ids(db, shot, run_input, run_start, 'nbi', power_multiplier = json_input['nbi options']['power multiplier'], backend = backend)
         print('Preparing nbi on index ' + str(run_start))
+        run_input, run_start = run_start, run_start+1
+
+    if json_input['instructions']['ec heating']:
+        # This is secretly already imported in setup_runs, for import order reasons, but there it's setup not to give errors since it is not really needed.
+        try:
+            import setup_nbi_input
+        except ImportError:
+            print('setup_nbi_input.py is needed to setup the nbi. Please download from fusion scripts')
+            exit()
+
+        print(db, shot, run_input, run_start)
+        setup_nbi_input.setup_system_ids(db, shot, run_input, run_start, 'ec_launchers', power_multiplier = json_input['ec options']['power multiplier'], backend = backend)
+        print('Preparing ec launchers on index ' + str(run_start))
+        run_input, run_start = run_start, run_start+1
+
+        setup_nbi_input.create_dummy_core_sources(db, shot, run_input, run_start, backend = backend)
+        print('Preparing dummy source on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     ion_number = check_ion_number(db, shot, run_input)
@@ -227,6 +252,11 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if json_input['instructions']['multiply ion temperature']:
         shift_profiles('ti', db, shot, run_input, run_start, mult = json_input['instructions']['multiply ion temperature'], backend = backend)
         print('Multipling ion temperature on index ' + str(run_start))
+        run_input, run_start = run_start, run_start + 1
+
+    if json_input['instructions']['multiply angular frequency']:
+        shift_profiles('angf', db, shot, run_input, run_start, mult = json_input['instructions']['multiply angular frequency'], backend = backend)
+        print('Multipling angular frequency on index ' + str(run_start))
         run_input, run_start = run_start, run_start + 1
 
     if json_input['instructions']['correct ion temperature']:
@@ -266,6 +296,10 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
             run_input, run_start = run_start, run_start+1
         elif zeff_option == 'flat median':
             set_flat_Zeff(db, shot, run_input, run_start, 'median', backend = backend)
+            print('Setting flat Zeff with median value on index ' + str(run_start))
+            run_input, run_start = run_start, run_start+1
+        elif zeff_option == 'flat value':
+            set_flat_Zeff(db, shot, run_input, run_start, 'value', value = json_input['zeff evolution parameter'], backend = backend)
             print('Setting flat Zeff with median value on index ' + str(run_start))
             run_input, run_start = run_start, run_start+1
         elif ion_number > 1 and not json_input['instructions']['average'] and zeff_option == 'impurity from flattop':
@@ -328,6 +362,11 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     if json_input['instructions']['correct equilibrium']:
         prepare_equilibrium_psi(db, shot, run_input, run_start, backend = backend)
         print('correcting the equilibrium on index ' + str(run_start))
+        run_input, run_start = run_start, run_start+1
+
+    if json_input['instructions']['smooth xpoint']:
+        smooth_xpoint_equilibrium(db, shot, run_input, run_start, backend = backend)
+        print('smoothing x point on index ' + str(run_start))
         run_input, run_start = run_start, run_start+1
 
     # To save time, core_profiles and equilibrium are saved and passed
@@ -634,10 +673,12 @@ class IntegratedModellingDict:
     
     
     def extract_core_sources(self):
-    
+        
+        
         profiles_1d, traces = {}, {}
+        time = []
         ids_iden = 'core_sources'
-    
+        '''
         for tag in keys_list['profiles_1d']['core_sources']:
             split = tag.split('#')
     
@@ -706,9 +747,9 @@ class IntegratedModellingDict:
                                 traces[split[0] + '#' + parts[0] + '[' + str(index1) + parts[1] + '[' + str(index2) + parts[2]].append(point)
     
         time = self.ids_struct[ids_iden].time
-    
+        '''
         return profiles_1d, traces, time
-    
+
     
     #For now nbi works weird. Will fix later when I know how the nbi enters pencil
     def extract_nbi(self):
@@ -1098,7 +1139,7 @@ class IntegratedModellingDict:
     
         self.ids_struct[ids_iden].ids_properties.homogeneous_time = imasdef.IDS_TIME_MODE_HOMOGENEOUS
         self.ids_struct[ids_iden].ids_properties.provider = username
-        self.ids_struct[ids_iden].ids_properties.creation_date = str(datetime.date)
+        self.ids_struct[ids_iden].ids_properties.creation_date = str(datetime.datetime.now().date())
         self.ids_struct[ids_iden].time = np.asarray([0.1])
     
     # Will need to think what to do here....  # THIS WILL BREAK THE CODE
@@ -1325,8 +1366,8 @@ class IntegratedModellingDict:
         ids_iden = 'core_sources'
         self.fill_basic_quantities(ids_iden)
 
+        '''
         # Should be possible to generalize here so this piece of code works for all the cases
-    
         for tag_type in ['profiles_1d', 'traces']:
             for tag in keys_list[tag_type]['core_sources']:
                 # Maybe not the ideal way to do it? It will probably break if there are only one or a few sources.
@@ -1393,7 +1434,9 @@ class IntegratedModellingDict:
                             index3 += 1
                         index2 += 1
     
-        self.ids_struct[ids_iden].time = self.ids_dict['time']['core_sources']
+        '''
+
+        #self.ids_struct[ids_iden].time = self.ids_dict['time']['core_sources']
     
     # nbi does not have a lot of time dependent fields so the structure is a little different. The old IDS is copied and not rebuilt from scratch
     
@@ -1498,9 +1541,10 @@ def correct_misalligned_hrts(db, shot, run, run_target, schema, username = None,
 
     # Extract data
     core_profiles = open_and_get_ids(db, shot, run, 'core_profiles', username = username, backend = backend)
-    ne_fit, ne_exp = [], []
+    ne_fit, ne_fit_thermal, ne_exp = [], [], []
     for profile_1d in core_profiles.profiles_1d:
         ne_fit.append(profile_1d.electrons.density)
+        ne_fit_thermal.append(profile_1d.electrons.density_thermal)
         ne_exp.append(profile_1d.electrons.density_fit.measured.data)
 
     ne_fit, ne_exp = np.asarray(ne_fit), np.asarray(ne_exp)
@@ -1520,6 +1564,7 @@ def correct_misalligned_hrts(db, shot, run, run_target, schema, username = None,
     for index, profile_1d in enumerate(core_profiles.profiles_1d):
         ratio = line_ave_proxy_new[index]/line_ave_proxy[index]
         core_profiles.profiles_1d[index].electrons.density = profile_1d.electrons.density*ratio
+        core_profiles.profiles_1d[index].electrons.density_thermal = profile_1d.electrons.density_thermal*ratio
         core_profiles.profiles_1d[index].electrons.density_fit.measured = profile_1d.electrons.density_fit.measured*ratio
 
     # Create the new IDS and syncronizing the new core profiles
@@ -1669,7 +1714,8 @@ def open_integrated_modelling(db, shot, run, username=None, backend=None):
 
     ids_struct = {}
     #ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering']
-    ids_list = ['core_profiles', 'core_sources', 'equilibrium', 'summary', 'thomson_scattering']
+    #ids_list = ['core_profiles', 'core_sources', 'equilibrium', 'summary', 'thomson_scattering']
+    ids_list = ['core_profiles', 'equilibrium', 'summary', 'thomson_scattering']
 
     for ids in ids_list:
         ids_struct_single = data_entry.get(ids)
@@ -1796,7 +1842,8 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend=None
     copy_ids_entry(db, shot, run, run_target, username=username, backend=backend)
 
     data_entry = imas.DBEntry(backend, db, shot, run_target, user_name=username)
-    ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
+    #ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
+    ids_list = ['core_profiles', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
 
     op = data_entry.open()
 
@@ -1814,7 +1861,7 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend=None
 # ------------------------------- ZEFF MANIPULATION ---------------------------------
 
 # Name changed. Need to change it in prepare input
-def set_flat_Zeff(db, shot, run, run_target, option, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
+def set_flat_Zeff(db, shot, run, run_target, option, value = None, db_target = None, shot_target = None, username = None, username_target = None, backend = None):
 
     '''
 
@@ -1849,7 +1896,6 @@ def set_flat_Zeff(db, shot, run, run_target, option, db_target = None, shot_targ
             Zeff_value = max_Zeff
         else:
             Zeff_value = 4.5
-
     elif option == 'minimum':
         if min_zeff > 1.02:
             Zeff_value = min_zeff
@@ -1860,6 +1906,8 @@ def set_flat_Zeff(db, shot, run, run_target, option, db_target = None, shot_targ
             Zeff_value = (max_Zeff + min_zeff)/2
         else:
             Zeff_value = (4.5 + min_zeff)/2
+    elif option == 'value':
+        Zeff_value = value
 
     else:
         print('Option not recognized, aborting. This should not happen')
@@ -2038,7 +2086,7 @@ def set_peaked_ev_zeff_profile(db, shot, run, run_target, db_target = None, shot
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
 
-def setup_nbi_ids(db, shot, run_input, run_start, username = None, db_target = None, shot_target = None, username_target = None, power_multiplier = 1.0, backend = None):
+def create_dummy_core_sources(db, shot, run_input, run_start, username = None, db_target = None, shot_target = None, username_target = None, power_multiplier = 1.0, backend = None):
 
     if not username: username=getpass.getuser()
     if not db_target: db_target = db
@@ -2638,8 +2686,62 @@ def flip_angf(db, shot, run, run_target, username = None, db_target = None, shot
     core_profiles_new.put(db_entry = data_entry_target)
     data_entry_target.close()
 
-
 # ------------------------------- SETTIN PROFILES ---------------------------------
+
+def smooth_boundaries(y, box_pts):
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth
+
+
+def smooth_xpoint_equilibrium(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
+
+    '''
+
+    Very simple algorithm to smooth the x point for numerical stability of ESCO
+
+    '''
+
+    if not username: username=getpass.getuser()
+    if not db_target: db_target = db
+    if not shot_target: shot_target = shot
+    if not username_target: username_target = username
+    if not backend: backend = get_backend(db, shot, run)
+
+    equilibrium = open_and_get_ids(db, shot, run, 'equilibrium', username = username, backend = backend)
+    copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
+
+    equilibrium_new = copy.deepcopy(equilibrium)
+
+    #plt.plot(equilibrium.time_slice[0].boundary.outline.z)
+
+    for i, equilibrium_slice in enumerate(equilibrium.time_slice):
+        zbnd  = equilibrium_slice.boundary.outline.z
+        i_extremum = np.where(zbnd == np.amin(equilibrium_slice.boundary.outline.z))[0]
+        #zbnd_extremum_new = (zbnd[i_extremum-1] + 2*zbnd[i_extremum] + zbnd[i_extremum+1])/4
+        #equilibrium_new.time_slice[i].boundary.outline.z[i_extremum] = zbnd_extremum_new
+
+        smooth_zbnd = smooth_boundaries(zbnd, 5)
+
+        #equilibrium_new.time_slice[i].boundary.outline.z[i_extremum-1] = smooth_zbnd[i_extremum-1]
+        #equilibrium_new.time_slice[i].boundary.outline.z[i_extremum] = smooth_zbnd[i_extremum]
+        #equilibrium_new.time_slice[i].boundary.outline.z[i_extremum+1] = smooth_zbnd[i_extremum+1]
+
+        equilibrium_new.time_slice[i].boundary.outline.z[i_extremum-1] = (smooth_zbnd[i_extremum-1] + zbnd[i_extremum-1])/2
+        equilibrium_new.time_slice[i].boundary.outline.z[i_extremum] = (smooth_zbnd[i_extremum] + zbnd[i_extremum])/2
+        equilibrium_new.time_slice[i].boundary.outline.z[i_extremum+1] = (smooth_zbnd[i_extremum+1] + zbnd[i_extremum+1])/2
+
+
+    #plt.plot(equilibrium_new.time_slice[0].boundary.outline.z)
+    #plt.show()
+    #exit()
+
+    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+
+    op = data_entry_target.open()
+    equilibrium_new.put(db_entry = data_entry_target)
+    data_entry_target.close()
+
 
 def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_target = None, shot_target = None, username_target = None, backend = None):
 
@@ -3228,15 +3330,29 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
             else:
                 print('ne sep needs to be a list with the first and the last value when method is linear. Aborting')
                 exit()
+        # Why is this like this here?
         elif extra_boundary_instructions['method ne'] == 'limit':
             ne_sep_time.append(ids_dict['profiles_1d']['electrons.density'][itime][-1])
-        elif extra_boundary_instructions['method ne'] == 'set early':
+
+        elif extra_boundary_instructions['method ne'] == 'add':
+            ne_sep_time.append(ids_dict['profiles_1d']['electrons.density'][itime][-1] + ne_sep)
+
+        elif extra_boundary_instructions['method ne'] == 'add early':
+            
+            # Sets initial density at ne start and goes linearly to whatever value there is at t continuity. Still adds
             f_space = interp1d(times, e_densities[:,-1])
-            ne_continuity = f_space(time_continuity_density)
-            if time < time_continuity_density:
-                ne_sep_time.append((ne_continuity - ne_start)/time_continuity*time + ne_start)
+            ne_continuity = f_space(time_continuity)
+            if time < time_continuity:
+                ne_sep_time.append((ne_continuity - ne_start + ne_sep)/time_continuity*time + ne_start)
             else:
-                ne_sep_time.append(e_densities[itime][-1])
+                ne_sep_time.append(ids_dict['profiles_1d']['electrons.density'][itime][-1] + ne_sep)
+
+        # Sets initial density and then goes to a fixed value
+        elif extra_boundary_instructions['method ne'] == 'set early':
+            if time < time_continuity_density:
+                ne_sep_time.append((ne_sep - ne_start)/time_continuity*time + ne_start)
+            else:
+                ne_sep_time.append(ne_sep)
         else:
             print('method for boundary settings not recognized. Aborting')
             exit()
@@ -3246,7 +3362,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
     if extra_boundary_instructions['method ne'] == 'limit':
         ne_sep_time = np.where(ne_sep_time < extra_boundary_instructions['ne sep'], ne_sep_time, extra_boundary_instructions['ne sep'])
         # sets also a minimum limit on the density that might be problematic for the model
-        ne_sep_time = np.where(ne_sep_time > 0.4e19, ne_sep_time, 0.4e19)
+        ne_sep_time = np.where(ne_sep_time > 0.05e19, ne_sep_time, 0.05e19)
 
     te_sep_time, ti_sep_time = np.asarray(te_sep_time), np.asarray(ti_sep_time)
     if bound_te_down:
@@ -3256,7 +3372,7 @@ def set_boundaries(db, shot, run, run_target, extra_boundary_instructions = {}, 
 
 
     # Ti is corrected when clearly too low or high. It would unecessarily slow down the simulation
-    ti_sep_time = np.where(ti_sep_time > 15, ti_sep_time, 15)
+    ti_sep_time = np.where(ti_sep_time > 10, ti_sep_time, 10)
     ti_sep_time = np.where(ti_sep_time < 500, ti_sep_time, 500)
 
     '''
@@ -3597,6 +3713,9 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
     elif profile_tag == 'zeff':
 # Modified and untested. Not sure it maintains ambipolarity by default
         dict_key = 'ion[1].density'
+    elif profile_tag == 'angf':
+        dict_key = 'rotation_frequency_tor_sonic'
+
 #        dict_key = 'zeff'
 
 # Could also use lists for everything and use only one of these. For example, electron pressure should also be changed.
@@ -3612,7 +3731,7 @@ def shift_profiles(profile_tag, db, shot, run, run_target, db_target = None, sho
             ids_dict['profiles_1d'][key] = new_profiles
 
     elif dict_key == 'electrons.density':
-        density_keys = ['electrons.density', 'electrons.density_thermal']
+        density_keys = ['electrons.density', 'electrons.density_thermal', 'ion[0].pressure_thermal']
         for key in density_keys:
 
             new_profiles = copy.deepcopy(ids_dict['profiles_1d'][key])
@@ -3838,9 +3957,11 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
     x = new_rho_tor_norm[0]
     '''
 
-    for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
+
+    for variable in ['electrons.density', 'electrons.density_thermal', 'electrons.temperature', 'q', 't_i_average', 'ion[0].density']:
 
         old_profiles = ids_dict['profiles_1d'][variable]
+
         if variable == 'electrons.density_thermal' or variable == 'electrons.density':
             # Should not matter, should be removed
             if electron_density_option == 'flat':
@@ -3848,6 +3969,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
             elif electron_density_option == 'first profile':
                 # Need to remap the profile to ensure first shape for the first profile
                 first_profile = fit_and_substitute(first_rho_norm_old, x, ids_dict['profiles_1d'][variable][0])
+
                 #first_profile = ids_dict['profiles_1d'][variable][0]
             elif electron_density_option == 'linear':
                 first_profile = ids_dict['profiles_1d'][variable][0][-1] + ne_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)
@@ -3855,6 +3977,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
                 first_profile = ids_dict['profiles_1d'][variable][0][-1] + ne_peaking_0*ids_dict['profiles_1d'][variable][0][-1]*(1-x)*(1-x)
             else:
                 print('option for the first density profile not recognized. Aborting')
+
         # Assuming (empirically, and it makes sense) that the initial temperature at the boundaries is lower at the very beginning, while the plasma warms up
         # That did not work. Assuming boundaries are fixed, but temperature is slightly peaked
         # Not activate now. Comments left to remember the history of changes
@@ -3907,13 +4030,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
 
         old_profiles = np.insert(old_profiles, 0, first_profile, axis = 0)
 
-        #x_dim = np.shape(old_profiles)[1]
-        #time_dim = np.shape(old_profiles)[0]
         new_profiles[variable] = np.asarray([])
-
-        #if variable == 'electrons.density_thermal':
-        #    print('first density profile is')
-        #    print(first_profile)
 
         for i in np.arange(x_dim):
 
@@ -3923,13 +4040,6 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
                 new_profiles[variable] = fit_and_substitute(old_times_core_profiles, new_times_core_profiles, old_profiles[:,i])
 
         new_profiles[variable] = np.transpose(new_profiles[variable].reshape(x_dim, len(new_times_core_profiles)))
-
-    #for variable in ['electrons.density_thermal', 'electrons.density', 'electrons.temperature', 'q', 't_i_average']:
-    #    ids_dict['profiles_1d'][variable] = np.transpose(np.asarray(new_profiles[variable]))
-
-    #fig, axs = plt.subplots(1,1)
-    #axs.plot(old_times_summary, ids_dict['traces']['line_average.n_e.value'], 'g-', label = 'line average pre')
-
 
     #When the current is negative, the fit extrapolation might flip it back to positive. Enforcing 0 current a t=0
     old_current = np.insert(ids_dict['traces']['global_quantities.ip'], 0, 0)
@@ -3974,7 +4084,7 @@ def add_early_profiles(db, shot, run, run_target, db_target = None, shot_target 
         print('Careful! Generating the data for the line averaged density')
         ids_dict['traces']['line_average.n_e.value'] = np.asarray(ids_dict['traces']['line_average.n_e.value'])
     else:
-        plt.plot(old_times_summary, ids_dict['traces']['line_average.n_e.value'], label = 'before')
+        #plt.plot(old_times_summary, ids_dict['traces']['line_average.n_e.value'], label = 'before')
         for i in range(i_time_over_0_1):
             ids_dict['traces']['line_average.n_e.value'][i] = ids_dict['traces']['line_average.n_e.value'][i_time_over_0_1]*line_averaged_proxy_summary_time['electrons.density'][i]/line_average_measured_point['electrons.density']
 
@@ -4154,7 +4264,49 @@ def smooth(x,window_len=7,window='hanning'):
 
     return y[int(window_len/2+1):-int(window_len/2-1)]
 
-def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ids_list = [], backend = None):
+
+class LoggingContext:
+    """Context manager to Temporarily change logging configuration.
+
+    From https://docs.python.org/3/howto/logging-cookbook.html
+
+    Parameters
+    ----------
+    logger : None, optional
+        Logging instance to change, defaults to root logger.
+    level : None, optional
+        New log level, i.e. `logging.CRITICAL`.
+    handler : None, optional
+        Log handler to use.
+    close : bool, optional
+        Whether to close the handler after use.
+    """
+
+    def __init__(self, logger=None, level=None, handler=None, close=True):
+        if not logger:
+            logger = logging.getLogger()
+        self.logger = logger
+        self.level = level
+        self.handler = handler
+        self.close = close
+
+    def __enter__(self):
+        if self.level is not None:
+            self.old_level = self.logger.level
+            self.logger.setLevel(self.level)
+        if self.handler:
+            self.logger.addHandler(self.handler)
+
+    def __exit__(self, et, ev, tb):
+        if self.level is not None:
+            self.logger.setLevel(self.old_level)
+        if self.handler:
+            self.logger.removeHandler(self.handler)
+        if self.handler and self.close:
+            self.handler.close()
+
+
+def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ids_list = [], backend = None, verbose = False):
 
     '''
 
@@ -4199,29 +4351,28 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
     idss_out = imas.DBEntry(backend, db_target, shot_target, run_target)
     idx = idss_out.create()[1]
 
-    for ids_info in parser.idss:
-        name = ids_info['name']
-        maxoccur = int(ids_info['maxoccur'])
-        if ids_list and name not in ids_list:
-            continue
-        if name == 'ec_launchers':
-            #print('continue on ec launchers')  # Temporarily down due to a malfunctioning of ec_launchers ids
-            continue
-        #if name in idss_in.__dict__:
-        for i in range(maxoccur + 1):
-            if not i:
-                print('Processing', ids_info['name'])
+    with LoggingContext(level=logging.CRITICAL):
 
-            ids = idss_in.__dict__[name]
+        for ids_info in parser.idss:
+            name = ids_info['name']
+            maxoccur = int(ids_info['maxoccur'])
+            if ids_list and name not in ids_list:
+                continue
+            #if name == 'ec_launchers':
+            #    print('continue on ec launchers')  # Temporarily down due to a malfunctioning of ec_launchers ids
+            #    continue
+            #if name in idss_in.__dict__:
+            for i in range(maxoccur + 1):
+                if not i and verbose:
+                    print('Processing', ids_info['name'])
 
-            stdout = sys.stdout
-            sys.stdout = open('/afs/eufus.eu/user/g/' + username_personal + '/warnings_imas.txt', 'w') # suppress warnings
-            ids.get(i)
-#            sys.stdout = stdout
-            ids.setExpIdx(idx)
-            ids.put(i)
-            sys.stdout.close()
-            sys.stdout = stdout
+                ids = idss_in.__dict__[name]
+                #print(ids)
+                #print(i)
+                #print(name)
+                ids.get(i)
+                ids.setExpIdx(idx)
+                ids.put(i)
 
     idss_in.close()
     #idss_out.close()
@@ -4272,6 +4423,7 @@ keys_list['profiles_1d']['core_profiles'] = [
     'ion[].pressure',
     't_i_average',
     'zeff',
+    'rotation_frequency_tor_sonic',
     'grid.rho_tor',
     'grid.rho_tor_norm',
     'grid.rho_pol_norm'
@@ -4432,5 +4584,9 @@ profile_tag_list = {
 
 if __name__ == "__main__":
 
-    print('Tool to automatically manipulate the inputs of a simulation')
+    flip_angf('jet', 99971, 2, 9, backend = 13)
+    #correct_misalligned_hrts('tcv', 64965, 1, 2, [1, 1, 0], backend = 13)
+    #setup_input('tcv', 64965, 5, 1500, json_dict, time_start = 0, time_end = 100, verbose = False, core_profiles = None, equilibrium = None)
+    #copy_ids_entry('g2mmarin', 'tcv', 64965, 1010, 64965, 1, backend = 'hdf5')
+
 
