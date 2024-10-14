@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 from IPython import display
 import argparse
+import getpass
 
 import imas
 
@@ -56,6 +57,12 @@ keys_list['profiles_1d'] = [
     'core_profiles.profiles_1d[].ion[1].density',
     'core_profiles.profiles_1d[].ion[1].density_fit.measured',
     'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper',
+    'core_profiles.profiles_1d[].ion[1].state[0].density_thermal',
+    'core_profiles.profiles_1d[].ion[1].state[1].density_thermal',
+    'core_profiles.profiles_1d[].ion[1].state[2].density_thermal',
+    'core_profiles.profiles_1d[].ion[1].state[3].density_thermal',
+    'core_profiles.profiles_1d[].ion[1].state[4].density_thermal',
+    'core_profiles.profiles_1d[].ion[1].state[5].density_thermal',
     'core_profiles.profiles_1d[].ion[2].temperature',
     'core_profiles.profiles_1d[].ion[2].temperature_fit.measured',
     'core_profiles.profiles_1d[].ion[2].temperature_fit.measured_error_upper',
@@ -166,6 +173,8 @@ operations = [
     '/'
 ]
 
+#y_limit_bottom, y_limit_top = None, None
+
 ##### FUNCTIONS
 
 def expand_error_keys(category=None):
@@ -216,6 +225,8 @@ python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time
     parser.add_argument("--integrate_errors",                        default=False, action='store_true',                   help="Integrates the errors")
     parser.add_argument("--use_regular_rho_grid",                    default=False, action='store_true',                   help="Uses a regular grid in rho instead of the grid of the first run")
     parser.add_argument("--labels",            nargs='+', type=str,  default=None,                                         help="Labels to be used for the runs")
+    parser.add_argument("--y_limits",          nargs='+', type=float,default=[None, None],                                 help="Fix limits for y in the plots")
+    parser.add_argument("--verbose",                                 default=False, action='store_true',                   help="Toggle the generation of plots at every timestep")
     args=parser.parse_args()
 
     return args
@@ -297,7 +308,7 @@ def fit_and_substitute(x_old, x_new, y_old):
     y_new[y_new > 1.0e25] = 0.0    # This is just in case
     return y_new
 
-def get_label_variable(variable):
+def get_label_variable(variable, show_units=True):
 
     """
     Get the label variable string for a given variable.
@@ -306,6 +317,8 @@ def get_label_variable(variable):
     ylabel = None
 
     if 'summary.global_quantities.li.value' in variable:
+        ylabel = [r'$l_{i3}$ ','[-]']
+    elif 'equilibrium.time_slice[].global_quantities.li_3' in variable:
         ylabel = [r'$l_{i3}$ ','[-]']
     elif 'summary.global_quantities.energy_diamagnetic.value' in variable:
         ylabel = [r'$W_{dia}$ ','[J]']
@@ -322,6 +335,10 @@ def get_label_variable(variable):
         ylabel = [r'$T_{e}$ ','[eV]']
     elif 'core_profiles.profiles_1d[].ion[0].temperature' in variable:
         ylabel = [r'$T_{i}$ ','[eV]']
+    elif 'core_profiles.profiles_1d[].t_i_average' in variable:
+        ylabel = [r'$T_{i}$ ','[eV]']
+    elif 'core_profiles.profiles_1d[].ion[1].state[5]' in variable:
+        ylabel = [r'$n_{C}^{+6}$ ','[$m^{-3}$]']
 
     if ylabel:
         if 'absolute_error' in variable:
@@ -335,13 +352,18 @@ def get_label_variable(variable):
             ylabel[0] = ylabel[0] + 'Relative error '
             ylabel[1] = '[-]'
 
-        return ylabel[0] + ylabel[1]
+        if show_units:
+            return ylabel[0] + ylabel[1]
+        else:
+            return ylabel[0]
     else:
         return variable
 
 
 fontsize_labels = 17
 fontsize_legend = 12
+fontsize_ticks = 12
+fontsize_title = 17
 legend_location_gifs = 'upper right' #Keeping the legend in the same place for the gifs
 
 
@@ -372,9 +394,9 @@ def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
         te_ind = tb_ind + 1
 
     for tt in np.arange(tb_ind, te_ind):
-        xstring = 'none'
-        ystring = 'none'
-        datatype = 'none'
+        xstring = 'None'
+        ystring = 'None'
+        datatype = 'None'
         sid_ind = -1
         tid_ind = -1
         # Auto-detect 0D, 1D, 2D signals based purely on the name, category lists at top of file
@@ -453,7 +475,11 @@ def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
         if idsname == 'core_profiles' and signame == 'core_profiles.profiles_1d[].ion[1].density_fit.measured_error_upper':
             xstring = 'ids.profiles_1d[tt].ion[1].density_fit.rho_tor_norm'
 
-        if xstring == 'none':
+        # Could be generalized to all the states
+        if idsname == 'core_profiles' and signame == 'core_profiles.profiles_1d[].ion[1].state[5].density_thermal':
+            xstring = 'ids.profiles_1d[tt].grid.rho_tor_norm'
+
+        if xstring == 'None':
             raise IOError('Signal %s not present in IDS.' % (signame))
 
         # Define x vector (could be time or radius)
@@ -591,6 +617,7 @@ def plot_traces(plot_data, plot_vars=None, single_time_reference=False, labels=N
 def create_run_label(pdata, run, first_run = False, labels=None):
 
     run_label=None
+
     if labels:
         for label in labels:
             if isolate_run_name(run) in label:
@@ -617,11 +644,17 @@ def isolate_run_name(run):
     pattern = r'(run.*?)'
     # Search for the pattern in the input string
     run_segments, run_contains = run.split('/'), []
+
     for run_segment in run_segments:
         run_with_runs = re.findall(pattern, run_segment)
         if run_with_runs:
             run_contains.append(run_segment)
-    if len(run_contains) == 0 or len(run_contains) == 1:
+
+    #print(run_contains)
+
+    if len(run_contains) == 4:
+        run_label = run_contains[-3]
+    elif len(run_contains) == 0 or len(run_contains) == 1:
         run_label = run
     else:
         run_label = run_contains[-1]
@@ -629,7 +662,7 @@ def isolate_run_name(run):
     return run_label
 
 
-def plot_interpolated_traces(interpolated_data, plot_vars=None, labels=None):
+def plot_interpolated_traces(interpolated_data, plot_vars=None, labels=None, y_limits=[None, None]):
     signal_list = interpolated_data["time_signals"] if "time_signals" in interpolated_data else keys_list['time_trace']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -639,7 +672,9 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None, labels=None):
             fig = plt.figure()
             ax = fig.add_subplot(111)
             if 'error' in signame:
-                next(ax._get_lines.prop_cycler)
+                #Chatgpt advises against this, but I do not want to set a custom cycler
+                ax._get_lines.get_next_color()
+                #next(ax._get_lines.prop_cycler)
 
             for run in interpolated_data[signame]:
                 #This is used to set the run labels. Should work most of the times with the new jintrac version
@@ -650,6 +685,11 @@ def plot_interpolated_traces(interpolated_data, plot_vars=None, labels=None):
 
             ax.set_xlabel("time [s]", fontsize = fontsize_labels)
             ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
+            if y_limits[0] is not None:
+                ax.set_ylim(bottom = y_limits[0])
+            if y_limits[1] is not None:
+                ax.set_ylim(top = y_limits[1])
+
             ax.legend(loc='best', fontsize = fontsize_legend)
 #            fig.savefig(signame+".png", bbox_inches="tight")
             plt.show()
@@ -765,6 +805,49 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False, la
             # good practice to close the plt object.
             plt.close()
 
+
+def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
+    signal_list = interpolated_data["profile_signals"] if "profile_signals" in interpolated_data else keys_list['profiles_1d']
+    if isinstance(plot_vars, list):
+        signal_list = plot_vars
+    for signame in signal_list:
+        first_run = None
+
+        if signame in interpolated_data:
+
+            print("Plotting %s" % (signame))
+
+            for tidx in range(len(interpolated_data[signame+".t"])):
+
+                Figure = plt.figure()
+                ax = Figure.add_subplot(1, 1, 1)
+                ax.set_xlabel(r'$\rho_{tor,norm}$', fontsize = fontsize_labels)
+                ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
+
+                title = get_label_variable(signame, show_units=False)
+
+                ax.set_title(title + ' at t = {time:.3f}'.format(time=interpolated_data[signame+".t"][tidx]), fontsize = fontsize_title)
+                # putting limits on x axis since it is a trigonometry function (0,2)
+                ax.set_xlim([0,1])
+
+                ax.tick_params(axis='x', labelsize=fontsize_ticks)
+                ax.tick_params(axis='y', labelsize=fontsize_ticks)
+
+                # putting limits on y since it is a cosine function
+                #ax.set_ylim([ymin,ymax])
+
+                for run in interpolated_data[signame]:
+                    #This is used to set the run labels. Should work most of the times with the new jintrac version
+                    if 'run' not in run: first_run = run
+
+                    #print("Plotting profiles at index %s" % (tidx))
+                    ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][tidx], label=create_run_label(interpolated_data[signame], run, first_run=first_run, labels=labels))
+
+                ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
+
+                plt.show()
+
+
 def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
     signal_list = interpolated_data["profile_signals"] if "profile_signals" in interpolated_data else keys_list['profiles_1d']
     if isinstance(plot_vars, list):
@@ -803,7 +886,6 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=Non
             ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
 
             # putting limits on x axis since it is a trigonometry function (0,2)
-
             ax.set_xlim([0,1])
 
             # putting limits on y since it is a cosine function
@@ -837,6 +919,7 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=Non
 
             # good practice to close the plt object.
             plt.close()
+
 
 def print_time_traces(data_dict, data_vars=None, inverted_layout=False):
     out_dict = {}
@@ -1551,7 +1634,7 @@ def rebase_x_datadict(data_dict):
     return data_dict
 
 
-def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, integrate_errors = False, use_regular_rho_grid = False, labels = None):
+def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, plot=False, analyze=False, error_type = 'absolute', correct_sign=False, steady_state=False, uniform=False, signal_operations=None, backend = 'hdf5', keep_op_signals = False, integrate = False, integrate_errors = False, use_regular_rho_grid = False, labels = None, y_limits=[None, None], verbose = False):
 
     ref_idx = 1 if steady_state else 0
     standardize = (uniform or analyze or isinstance(time_basis, (list, tuple, np.ndarray)))
@@ -1578,11 +1661,15 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
                 data_dict_no_vol = copy.deepcopy(data_dict)
                 del data_dict_no_vol['core_profiles.profiles_1d[].grid.volume']
 
-                plot_interpolated_traces(data_dict_no_vol, labels = labels)
+                plot_interpolated_traces(data_dict_no_vol, labels = labels, y_limits=y_limits)
                 plot_gif_interpolated_profiles(data_dict_no_vol, labels = labels)
+                if verbose:
+                    plot_interpolated_profiles(data_dict_no_vol, labels = labels)
             else:
-                plot_interpolated_traces(data_dict, labels = labels)
+                plot_interpolated_traces(data_dict, labels = labels, y_limits=y_limits)
                 plot_gif_interpolated_profiles(data_dict, labels = labels)
+                if verbose:
+                    plot_interpolated_profiles(data_dict, labels = labels)
         else:
             plot_traces(data_dict, single_time_reference=steady_state, labels = labels)
             plot_gif_profiles(data_dict, single_time_reference=steady_state, labels = labels)
@@ -1597,7 +1684,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
         time_error_dict = perform_time_trace_analysis(data_dict, **options)
 
         if plot:
-            plot_interpolated_traces(time_error_dict, labels=labels)
+            plot_interpolated_traces(time_error_dict, labels=labels, y_limits=y_limits)
 
         options = {"average_error": True, "error_type": error_type}
 
@@ -1615,7 +1702,7 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
             del profile_error_dict['core_profiles.profiles_1d[].grid.volume.average_' + error_type_split[0] + '_error_volume.t']
 
         if plot:
-            plot_interpolated_traces(profile_error_dict, labels=labels)
+            plot_interpolated_traces(profile_error_dict, labels=labels, y_limits=y_limits)
 
         time_error_averages = print_time_trace_errors(time_error_dict, integrate_errors = integrate_errors)
         if 'squared' in error_type:
@@ -1665,7 +1752,9 @@ def main():
         integrate=args.integrate,
         integrate_errors=args.integrate_errors,
         use_regular_rho_grid=args.use_regular_rho_grid,
-        labels=args.labels
+        labels=args.labels,
+        y_limits=args.y_limits,
+        verbose=args.verbose
     )
     # Arugments not used: save_plot, version
 
