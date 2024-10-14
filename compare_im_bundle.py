@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 import sys
-#sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
-#import jetto_tools
-#import duqtools
+sys.path.insert(0, '/afs/eufus.eu/user/g/g2mmarin/python_tools/jetto-pythontools')
+import jetto_tools
+import duqtools
 import argparse
 
 import compare_im_runs
@@ -34,7 +34,7 @@ def input():
     """Compare validation metrics from HFPS input / output IDSs, for multiple quantities and runs. Preliminary version, using scripts from D. Yadykin and M. Marin.\n
     ---
     Examples:\n
-    python compare_im_bundle.py --filename runlist.txt --signals te ne --time_begin 0.1 --time_end 0.3 --correct_sign --show_fit --error_type 'absolute' --plot_traces
+    python compare_im_bundle.py --filename runlist.txt --signals te ne --time_begin 0.1 --time_end 0.3 --correct_sign --show_fit --error_type 'absolute' --plot_traces --use_regular_rho_grid --shot_model_from_name
     python compare_im_bundle.py --filename runlist.txt --signals te ne --time_begin 0.1 --time_end 0.3 --error_type 'absolute'
     ---
     """,
@@ -52,6 +52,9 @@ def input():
     parser.add_argument("--show_fit",                                   default=False, action='store_true',           help="Shows fit instead of modelling results")
     parser.add_argument("--error_type",                     type=str,   default='absolute',                           help="Decides which metric to use for the errors")
     parser.add_argument("--plot_traces",                                default=False, action='store_true',           help="Plot only the errors or the full trace")
+    parser.add_argument("--integrate_errors",                           default=False, action='store_true',           help="Integrate the errors in time")
+    parser.add_argument("--use_regular_rho_grid",                       default=False, action='store_true',           help="Uses a regular grid instead of the one from the first run")
+    parser.add_argument("--shot_model_from_name",                       default=False, action='store_true',           help="Pick the shot used for the model from the run name")
 
     args=parser.parse_args()
 
@@ -100,40 +103,57 @@ def get_measure_variable(variable, error_type = 'absolute'):
     """
     Get the label variable string for a given variable.
     """
-    if error_type == 'relative':
-        return r'[-]'
+    dimension, volume = None, False
+    if 'volume' in error_type:
+        volume = True
+        error_type = error_type.replace(' volume','')
 
-    if variable == 'te':
-        return r'[-]'
+    if error_type == 'relative' or error_type == 'squared':
+        dimension = r'[-]'
+
+    elif variable == 'te':
+        dimension = r'[eV]'
     elif variable == 'ne':
-        return r'[-]'
+        dimension =  r'[$m^{-3}$]'
     elif variable == 'ti':
-        return r'[-]'
+        dimension = r'[eV]'
     elif variable == 'ni':
-        return r'[-]'
+        dimension = r'[$m^{-3}$]'
     elif variable == 'summary.global_quantities.v_loop.value':
-        return r'[V]'
+        dimension = r'[V]'
     elif variable == 'summary.global_quantities.li.value':
-        return r'[-]'
+        dimension = r'[-]'
 
     elif variable == 'core_profiles.profiles_1d[].electrons.density':
-        return r'[$m^{-3}$]'
+        dimension = r'[$m^{-3}$]'
     elif variable == 'core_profiles.profiles_1d[].electrons.temperature':
-        return r'[eV]'
+        dimension = r'[eV]'
     elif variable == 'core_profiles.profiles_1d[].ion[0].density':
-        return r'[$m^{-3}$]'
+        dimension = r'[$m^{-3}$]'
     elif variable == 'core_profiles.profiles_1d[].ion[0].temperature':
-        return r'[eV]'
+        dimension = r'[eV]'
 
-    else:
+    if not dimension:
         return variable
 
+    if volume:
+        if variable in ['ne', 'ni', 'core_profiles.profiles_1d[].electrons.density', 'core_profiles.profiles_1d[].ion[0].density']:
+            dimension = dimension.replace('[$m^{-3}$]','[$m^{-6}$]')
+        elif dimension == r'[-]':
+            dimension = dimension.replace('-','$m^{-3}$')
+        else:
+            dimension = dimension[:-1] + '$ m^{-3} $' + dimension[-1]
 
-def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', error_type = 'absolute'):
+    return dimension
+
+
+def get_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', error_type = 'absolute', use_regular_rho_grid = False):
 
     time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
 
     username = os.getenv("USER")
+    print('runs output are')
+    print(run_output)
 
     idslist = generate_ids_list(username, db, shot, run_input, [run_output], show_fit = False)
     signals = [signal]
@@ -143,7 +163,10 @@ def get_error(shot, run_input, run_output, signal, time_begin = None, time_end =
         print('Warning! One run did not finish properly. Substituting 0 as error')
         errors = [0.0]
     else:
-        time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signals, idslist, time_begin, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None, error_type = error_type)
+        print('ids list is')
+        print(idslist)
+
+        time_averages, time_error_averages, profile_error_averages = compare_im_runs.compare_runs(signals, idslist, time_begin, time_end=time_end, plot=False, analyze=True, correct_sign=True, signal_operations=None, error_type = error_type, use_regular_rho_grid = use_regular_rho_grid)
 
         errors = []
         for signal in time_error_averages:
@@ -157,11 +180,36 @@ def get_error(shot, run_input, run_output, signal, time_begin = None, time_end =
     return errors
 
 
-def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False, error_type = 'absolute'):
+def calculate_time_begin_end(shot, run_input, run_output, time_begin = None, time_end = None, db = 'tcv', shot_model = None):
 
-    time_begin, time_end = compare_im_exp.get_time_begin_and_end(db, shot, run_output, time_begin, time_end)
+    if not shot_model:
+        time_begin_run, time_end_run = compare_im_exp.get_time_begin_and_end(db, shot, run_output, None, None)
+    else:
+        time_begin_run, time_end_run = compare_im_exp.get_time_begin_and_end(db, shot_model, run_output, None, None)
 
-    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit, error_type = error_type)
+    if time_begin:
+        if time_begin < time_begin_run:
+            time_begin = time_begin_run
+    else:
+        time_begin = time_begin_run
+
+    if time_end:
+        if time_end < time_end_run:
+            time_end = time_end_run
+    else:
+        time_end = time_end_run
+
+    return time_begin, time_end
+
+def get_exp_error(shot, run_input, run_output, signal, time_begin = None, time_end = None, db = 'tcv', show_fit = False, error_type = 'absolute', shot_model = None):
+
+    time_begin, time_end = calculate_time_begin_end(shot, run_input, run_output, time_begin = time_begin, time_end = time_end, db = db, shot_model = shot_model)
+
+    if time_end-time_begin < 0.01:
+        print('One of the runs did not run correctly, returning 0 as an error')
+        return[0]
+
+    errors_dict, errors_time_dict = compare_im_exp.plot_exp_vs_model(db, shot, run_input, run_output, time_begin, time_end, signals = [signal], verbose = 0, show_fit = show_fit, error_type = error_type, shot_model = shot_model)
 
     errors = []
 
@@ -267,7 +315,7 @@ def separate_signal_lists(signals):
     return exp_signals, mod_signals
 
 
-def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False, error_type = 'absolute', error_type_exp = None):
+def plot_all_traces(filename, signals, time_begin = None, time_end = None, username = None, correct_sign=False, signal_operations=None, show_fit = False, error_type = 'absolute', error_type_exp = None, integrate_errors = False, use_regular_rho_grid = False, shot_model_from_name = False):
 
     # Ideally want to use the other functions, but I cannot figure out how to use the axes that way...
     if not username: username=getpass.getuser()
@@ -296,10 +344,12 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
 
     # For now not showing the fits in compare runs, where thez should be 0
     idslist = generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False)
-
     data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, mod_signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
 
-    options_trace, options_profile = {'error': True, 'error_type' : error_type}, {'average_error': True, 'error_type' : error_type}
+    if use_regular_rho_grid:
+        data_dict = compare_im_runs.rebase_x_datadict(data_dict)
+
+    options_trace, options_profile = {'error': True, 'error_type' : error_type, 'integrate_errors': integrate_errors}, {'average_error': True, 'error_type' : error_type, 'integrate_errors': integrate_errors}
     time_error_dict = compare_im_runs.perform_time_trace_analysis(data_dict, **options_trace)
     profile_error_dict = compare_im_runs.perform_profile_analysis(data_dict, **options_profile)
 
@@ -342,17 +392,57 @@ def plot_all_traces(filename, signals, time_begin = None, time_end = None, usern
 
             variable = compare_im_exp.get_variable_names_exp(signame)
             title_variable = compare_im_exp.get_title_variable(list(variable.keys())[0])
-            title = 'Normalized error for ' + title_variable
+            title = get_title(error_type)
+            title = title + title_variable
 
             ax[icolumns][iraws].set_title(title, fontsize = fontsize_title)
             ax[icolumns][iraws].legend(fontsize = fontsize_legend)
             ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
-            ax[icolumns][iraws].set_ylabel(r'$\sigma$ [-]', fontsize = fontsize_ylabel)
+            ylabel = get_y_label(error_type, signame, t_or_rho = 't')
+            ax[icolumns][iraws].set_ylabel(ylabel, fontsize = fontsize_ylabel)
         else:
             print('signal not recognized. Aborting')
             exit()
 
     plt.show()
+
+def get_title(error_type):
+
+    title = None
+    if error_type == 'absolute':
+        title = 'Distance for '
+    elif error_type == 'relative':
+        title = 'Relative distance for '
+    elif error_type == 'difference':
+        title = 'Difference for '
+    elif error_type == 'squared':
+        title = 'Normalized $ \sigma $ for '
+
+    return title
+
+
+def get_y_label(error_type, variable, t_or_rho = 't'):
+
+    ylabel = None
+    if error_type == 'absolute':
+        if variable == 'te' or variable == 'ti':
+            ylabel = 'Distance [eV]'
+        if variable == 'ne' or variable == 'ni':
+            ylabel = 'Distance [$ 10^{-19} m^{-3} $]'
+    elif error_type == 'relative':
+        ylabel = 'Relative distance [-]'
+    elif error_type == 'difference':
+        if variable == 'te' or variable == 'ti':
+            ylabel = 'Difference [eV]'
+        if variable == 'ne' or variable == 'ni':
+            ylabel = 'Difference [$ 10^{-19} m^{-3} $]'
+    elif error_type == 'squared':
+        if t_or_rho == 'rho':
+            ylabel = '$ \sigma_{\rho} $ [-]'
+        elif t_or_rho == 't':
+            ylabel = '$ \sigma_{t} $ [-]'
+
+    return ylabel
 
 
 def create_subplots(signal_list):
@@ -404,7 +494,7 @@ def read_file_time_dep(filename, show_fit = False):
         runs_output.append(line)
 
         if show_fit:
-            labels.append('fit')
+            labels.append('fit to exp data')
 
     return db, shot, run_exp, labels, runs_output
 
@@ -436,7 +526,7 @@ def generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = False
     return idslist
 
 
-def plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False, error_type = 'absolute'):
+def plot_errors_traces(filename, signals, username = None, time_begin = None, time_end = None, correct_sign=False, steady_state=False, uniform=False, signal_operations=None, show_fit = False, error_type = 'absolute', use_regular_rho_grid = False):
 
     db, shot, run_exp, labels, runs_output = read_file_time_dep(filename, show_fit = show_fit)
     if not username: username=getpass.getuser()
@@ -454,6 +544,9 @@ def plot_errors_traces(filename, signals, username = None, time_begin = None, ti
     fig, ax, num_columns = create_subplots(signals)
     idslist = generate_ids_list(username, db, shot, run_exp, runs_output, show_fit = show_fit)
     data_dict, ref_tag = compare_im_runs.generate_data_tables(idslist, signals, time_begin, time_end=time_end, signal_operations=signal_operations, correct_sign=correct_sign, standardize=True)
+
+    if use_regular_rho_grid:
+        data_dict = compare_im_runs.rebase_x_datadict(data_dict)
 
     #options_trace, options_profile = {'absolute_error': True}, {'average_absolute_error': True}
     options_trace, options_profile = {'error': True, 'error_type' : error_type}, {'average_error': True, 'error_type' : error_type}
@@ -479,6 +572,7 @@ def plot_errors_traces(filename, signals, username = None, time_begin = None, ti
         ax[icolumns][iraws].set_title(title, fontsize = fontsize_title)
         ax[icolumns][iraws].legend(loc='best', fontsize = fontsize_legend)
         ax[icolumns][iraws].set_xlabel(r'time [s]', fontsize = fontsize_xlabel)
+        
         ax[icolumns][iraws].set_ylabel(r'$\sigma$ ' + ylabel, fontsize = fontsize_ylabel)
         #fig.tight_layout()
 
@@ -525,10 +619,25 @@ def get_input_run_lists(filename):
     return num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot
 
 
-def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1, error_type = 'absolute', error_type_exp = None):
+def get_shots_model(run_list, shot_model_from_name):
+
+    shots_model = []
+    for run_name in run_list:
+        if shot_model_from_name:
+            shot = int(run_name[0].split('_')[1])
+            shots_model.append(shot)
+        else:
+            shots_model.append(None)
+
+    return shots_model
+
+
+def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_type = 1, error_type = 'absolute', error_type_exp = None, use_regular_rho_grid = False, shot_model_from_name = False):
 
     if not error_type_exp: error_type_exp = error_type
     num_run_series, shot_list, run_input_list, run_output_list, saw_file_paths, labels_plot = get_input_run_lists(filename)
+
+    shots_model = get_shots_model(run_output_list, shot_model_from_name)
 
     # Pre deciding the structure of the plots with the various possibilities of len(signal_list)
     fig, ax, num_columns = create_subplots(signal_list)
@@ -550,13 +659,13 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
             for run_serie in range(num_run_series):
                 errors = []
                 #if signal not in exp_signal_list:
-                for shot, run_input, run_output, saw_file_path in zip(shot_list, run_input_list, run_output_list[:,run_serie], saw_file_paths):
+                for shot, run_input, run_output, shot_model, saw_file_path in zip(shot_list, run_input_list, run_output_list[:,run_serie], shots_model, saw_file_paths):
                     if signal in exp_signal_list:
-                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp)[0])
+                        errors.append(get_exp_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp, shot_model = shot_model)[0])
                     elif signal == 'sawteeth':
                         errors.append(get_sawteeth_error(shot, run_output, saw_file_path, time_begin = time_begin, time_end = time_end))
                     else:
-                        errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
+                        errors.append(get_error(shot, run_input, run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type, use_regular_rho_grid = use_regular_rho_grid)[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/num_run_series + run_serie*width, errors, width, label=labels_plot[run_serie])
 
@@ -589,9 +698,9 @@ def plot_errors(filename, signal_list, time_begin = None, time_end = None, plot_
                     if signal == 'sawteeth':
                         errors.append(get_sawteeth_error(shot_list[shot], run_output, saw_file_paths[shot], time_begin = time_begin, time_end = time_end))
                     elif signal not in exp_signal_list:
-                        errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type)[0])
+                        errors.append(get_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type, use_regular_rho_grid = use_regular_rho_grid)[0])
                     else:
-                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp)[0])
+                        errors.append(get_exp_error(shot_list[shot], run_input_list[shot], run_output, signal, time_begin = time_begin, time_end = time_end, error_type = error_type_exp, shot_model = shots_model[shot])[0])
 
                 rects = ax[icolumns][iraws].bar(x - width + width/len(shot_list) + shot*width, errors, width, label=shot_list[shot])
 
@@ -624,7 +733,9 @@ def main():
             time_begin=args.time_begin,
             time_end=args.time_end,
             plot_type=args.plot_type,
-            error_type=args.error_type
+            error_type=args.error_type,
+            use_regular_rho_grid=args.use_regular_rho_grid,
+            shot_model_from_name=args.shot_model_from_name
         )
     else:
         plot_all_traces(
@@ -636,12 +747,13 @@ def main():
             show_fit=args.show_fit,
             error_type=args.error_type,
             correct_sign=args.correct_sign,
-            signal_operations=args.signal_operations
+            signal_operations=args.signal_operations,
+            integrate_errors=args.integrate_errors,
+            use_regular_rho_grid=args.use_regular_rho_grid,
+            shot_model_from_name=args.shot_model_from_name
         )
 
 
 if __name__ == "__main__":
-
     main()
-
 
