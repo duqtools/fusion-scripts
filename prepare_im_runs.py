@@ -230,6 +230,9 @@ class IntegratedModellingRuns:
         # Trying to be a little flexible with the generator name. It is not used if I am only setting the input.
         # Still mandatory argument, should not be forgotten
 
+        if self.json_input:
+            self.setup_nbi_flag = self.json_input['instructions']['nbi heating']
+
         self.path = '/pfs/work/' + self.username + '/jetto/runs/'
         self.generator_username = ''
 
@@ -282,9 +285,9 @@ class IntegratedModellingRuns:
             tag = '_' + tag
             self.tag_list.append(tag)
 
-        # Default nbi path is in public.
-        if not self.path_nbi_config:
-            self.path_nbi_config = '/afs/eufus.eu/user/g/g2mmarin/public/tcv_inputs/jetto.nbicfg'
+        # Default nbi path is in public. setup_nbi should take care of this
+        #if not self.path_nbi_config:
+        #    self.path_nbi_config = '/afs/eufus.eu/user/g/g2mmarin/public/tcv_inputs/jetto.nbicfg'
 
         # New instructions are just an array with six True/False (or 0/1). They correspond orderly to what to do in the instruction list
 
@@ -387,11 +390,6 @@ class IntegratedModellingRuns:
         if self.density_feedback == True:
             self.get_feedback_on_density_quantities()        
 
-        if (b0 > 0 and self.equilibrium.time_slice[0].global_quantities.ip < 0) or (b0 < 0 and self.equilibrium.time_slice[0].global_quantities.ip > 0):
-            ibtsign = 1
-        else:
-            ibtsign = -1
-
         if 'interpretive' not in self.path_generator:
             interpretive_flag = False
         else:
@@ -405,8 +403,10 @@ class IntegratedModellingRuns:
             self.modify_impurities_jset(imp_data_ids)
 
         # Still cannot run with positive current...
-        self.modify_jetto_in(self.baserun_name, r0, abs(b0), self.time_start, self.time_end, imp_datas_ids = imp_data, num_times_print = self.output_timesteps, num_times_eq = self.esco_timesteps, ibtsign = ibtsign, interpretive_flag = interpretive_flag)
-        #self.modify_jetto_in(self.baserun_name, r0, b0, self.time_start, end_time, imp_datas_ids = imp_data, num_times_print = self.output_timesteps, ibtsign = ibtsign)
+        self.modify_jetto_in(self.baserun_name, r0, abs(b0), self.time_start, self.time_end, num_times_print = self.output_timesteps, num_times_eq = self.esco_timesteps, interpretive_flag = interpretive_flag)
+
+        #I am still not sure if the magnetic field should be turned to 0
+        #self.modify_jetto_in(self.baserun_name, r0, b0, self.time_start, self.time_end, imp_datas_ids = imp_data, num_times_print = self.output_timesteps, num_times_eq = self.esco_timesteps, interpretive_flag = interpretive_flag)
 
         self.setup_jetto_simulation()
     
@@ -421,8 +421,11 @@ class IntegratedModellingRuns:
 
         if self.setup_nbi_flag:
             nbi = open_and_get_ids(self.db, self.shot, self.run_start, 'nbi')
-            if nbi.time != np.asarray([]):
-                self.setup_nbi(path_nbi_config = self.path_nbi_config)
+            #if nbi.time != np.asarray([]):
+            if nbi.time.size != 0:
+                #self.setup_nbi(path_nbi_config = self.path_nbi_config)
+                #run_target = self.run_start suppresses ids generation while allowing for script to be used standalone. Might not be the best way to do it
+                setup_nbi_input.setup_nbi(self.db, self.shot, self.run_start, self.path + self.baserun_name, run_target = self.run_start, path_nbi_config = self.path_nbi_config)
             else:
                 print('You are trying to setup the nbi but the nbi ids is empty. Aborting')
                 exit()
@@ -441,6 +444,10 @@ class IntegratedModellingRuns:
             self.setup_time_polygon_impurity_puff()
 
         modify_llcmd(self.baserun_name, self.generator_name, self.generator_username)
+
+        # ------------------ TESTING HERE --------------------------
+        if os.path.exists(self.generator_name + '/jintrac.launch'):
+            modify_jintrac_launch(self.baserun_name, self.generator_name, self.generator_username, self.db, self.shot, self.time_start, self.time_end)
 
         if self.backend_input == imasdef.MDSPLUS_BACKEND:
             self.copy_ids_input_mdsplus()
@@ -567,7 +574,8 @@ class IntegratedModellingRuns:
 
         os.chdir(self.path + self.baserun_name)
         print('running ' + self.baserun_name)
-        os.system('sbatch ./.llcmd')
+        #os.system('sbatch ./.llcmd')
+        os.system('sbatch .llcmd')
 
 
     def get_r0_b0(self):
@@ -600,7 +608,7 @@ class IntegratedModellingRuns:
         return b0, r0
 
     
-    def setup_ibtsign(self, b0, extranamelist, config):
+    def setup_ibtsign_config(self, b0, extranamelist, config):
 
         ip_from_ids = read_jettoin_line(self.path_baserun + '/jetto.in', '  IDSPULSESCHEDIN_IPL')
         if ip_from_ids is not None: ip_from_ids = int(ip_from_ids[0])
@@ -611,8 +619,10 @@ class IntegratedModellingRuns:
             current = read_jettoin_line(self.path_baserun + '/jetto.in', '  CURTI')[0]
 
         if (b0 > 0 and current < 0) or (b0 < 0 and current > 0):
+            ibtsign = 1
             extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['1'])
         else:
+            ibtsign = -1
             extranamelist = add_extraname_fields(extranamelist, 'IBTSIGN', ['-1'])
 
         if 'interpretive' not in self.path_generator:
@@ -621,7 +631,7 @@ class IntegratedModellingRuns:
             else:
                 config['ibtsign'] = -1
 
-        return extranamelist, config
+        return extranamelist, config, ibtsign
 
 
     def setup_jetto_simulation(self):
@@ -671,7 +681,10 @@ class IntegratedModellingRuns:
         template = jetto_tools.template.from_directory(self.path_baserun)
         config = jetto_tools.config.RunConfig(template)
 
-        extranamelist, config = self.setup_ibtsign(b0, extranamelist, config)        
+        # For some reason this works for TCV and not for JET. Will have to understand this
+        if self.db == 'tcv':
+            extranamelist, config, ibtsign = self.setup_ibtsign_config(b0, extranamelist, config)
+            self.setup_ibtsign_jetto_in(ibtsign)
 
         if 'interpretive' not in self.path_generator:
             config['btin'] = abs(b0)
@@ -1033,6 +1046,7 @@ class IntegratedModellingRuns:
             '  ZIPI': imp_charge
         }
 
+        # Probably this part could be standardized
         read_data = []
         with open(self.path_baserun + '/' + 'jetto.in') as f:
             lines = f.readlines()
@@ -1058,7 +1072,39 @@ class IntegratedModellingRuns:
                 f.writelines(line)
 
 
-    def modify_jetto_in(self, sensitivity_name, r0, b0, time_start, time_end, num_times_print = None, num_times_eq = None, imp_datas_ids = None, ibtsign = 1, interpretive_flag = False):
+    def setup_ibtsign_jetto_in(self, ibtsign = 1):
+
+        read_data = []
+
+        with open(self.baserun_name + '/' + 'jetto.in') as f:
+            lines = f.readlines()
+            for line in lines:
+                read_data.append(line)
+
+        index_btin, index_ibtsign = 0, 0
+        for index, line in enumerate(read_data):
+            if line[:6] == '  BTIN':
+                index_btin = index
+            elif line[:9] == '  IBTSIGN':
+                index_ibtsign = index
+
+        if index_ibtsign == 0:
+            if ibtsign == 1:
+                read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
+            elif ibtsign == -1 :
+                read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
+        else:
+            if ibtsign == 1:
+                read_data[index_ibtsign] = '  IBTSIGN  =  1        ,'  + '\n'
+            elif ibtsign == -1 :
+                read_data[index_ibtsign] = '  IBTSIGN  =  -1       ,'  + '\n'
+
+        with open(self.baserun_name + '/' + 'jetto.in', 'w') as f:
+            for line in read_data:
+                f.writelines(line)
+
+
+    def modify_jetto_in(self, run_name, r0, b0, time_start, time_end, num_times_print = None, num_times_eq = None, interpretive_flag = False):
 
         '''
     
@@ -1067,14 +1113,13 @@ class IntegratedModellingRuns:
         '''
 
         read_data = []
-    
-        with open(sensitivity_name + '/' + 'jetto.in') as f:
+        with open(run_name + '/' + 'jetto.in') as f:
             lines = f.readlines()
             for line in lines:
                 read_data.append(line)
     
         # Could also use a list here as well, but just trying now
-        index_btin, index_nlist1, index_nlist4, index_ibtsign = 0, 0, 0, 0
+        index_btin, index_nlist1, index_nlist4 = 0, 0, 0
 
         original_num_tprint = 1
 
@@ -1106,8 +1151,6 @@ class IntegratedModellingRuns:
                 index_nlist4 = index
             elif line[:8] == ' &NLIST1':
                 index_nlist1 = index
-            elif line[:9] == '  IBTSIGN':
-                index_ibtsign = index
 
         for index, line in enumerate(read_data):
             for jetto_name in jetto_in_nameslist:
@@ -1140,28 +1183,6 @@ class IntegratedModellingRuns:
             index_btin = index_nlist1 + 2
             read_data.insert(index_btin, '  RMJ   =  ' + str(r0) + '     ,'  + '\n')
             read_data.insert(index_btin, '  BTIN  =  ' + str(b0) + '     ,'  + '\n')
-
-        #if not interpretive_flag:
-        #    if ibtsign == 1:
-        #        read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
-        #    elif ibtsign == -1 :
-        #        read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
-
-        # SOMETHING CHANGED IN THE LAST VERSION, DEBUGGING
-
-        if index_ibtsign == 0:
-            if ibtsign == 1:
-                read_data.insert(index_btin, '  IBTSIGN  =  1        ,'  + '\n')
-            elif ibtsign == -1 :
-                read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
-        else:
-            if ibtsign == 1:
-                read_data[index_ibtsign] = '  IBTSIGN  =  1        ,'  + '\n'
-            elif ibtsign == -1 :
-                read_data[index_ibtsign] = '  IBTSIGN  =  -1       ,'  + '\n'
-
-        #if ibtsign == -1 :
-        #    read_data.insert(index_btin, '  IBTSIGN  =  -1       ,'  + '\n')
 
         if self.line_ave_density is not None:
             # -------------- First delete lines if they are already there -----------------
@@ -1216,7 +1237,7 @@ class IntegratedModellingRuns:
             if line[:6] == '      ' and tprint_start != 0 and index > tprint_start and index < tprint_start +10:
                 read_data[index] = '             ' + '\n'
 
-        with open(sensitivity_name + '/' + 'jetto.in', 'w') as f:
+        with open(run_name + '/' + 'jetto.in', 'w') as f:
             for line in read_data:
                 f.writelines(line)
 
@@ -1252,7 +1273,7 @@ class IntegratedModellingRuns:
         core_profiles = open_and_get_ids(self.db, self.shot, self.run_start, 'core_profiles')
 
         #Allows for manipulating the impurity puff for sensitivities
-        if isinstance(self.change_impurity_puff_flag, float):
+        if isinstance(self.change_impurity_puff_flag, float) and self.puff_value is not None:
             self.puff_value = self.puff_value*self.change_impurity_puff_flag
 
         self.dens_feedback_time = pulse_schedule.time
@@ -1608,24 +1629,32 @@ def remove_lines_after_marker(marker, read_data):
 
     index_start, index_end = find_index_start(marker, read_data), 0
 
-    for i, line in enumerate(read_data[index_start:]):
-        if not line.startswith('        '):
-            index_end = i
-            break
+    if index_start:
+        for i, line in enumerate(read_data[index_start:]):
+            if not line.startswith('        '):
+                index_end = i
+                break
 
-    index_end = index_end+index_start
-    read_data_new = read_data[:index_start] + read_data[index_end:]
+        index_end = index_end+index_start
+        read_data_new = read_data[:index_start] + read_data[index_end:]
+    else:
+        read_data_new = read_data
 
     return read_data_new
 
 def find_index_start(start, read_data):
 
+    index = None
+
     for i, line in enumerate(read_data):
         if line.startswith(start):
            index = i
 
-    return index + 1
-
+    if index:
+        return index + 1
+    else:
+        return index
+    
 
 def reshape_array(array, chunk_size):
     return [array[i:i+chunk_size] for i in range(0, len(array), chunk_size)]
@@ -1665,6 +1694,8 @@ def read_jettoin_line(path_jetto_in, line_start):
 def read_puff_jettosin(path_jetto_sin):
 
     field_values = '  SPEFLX'
+
+    puff_value = None
 
     lines = []
     with open(path_jetto_sin) as f:
@@ -1773,6 +1804,9 @@ def get_extraname_fields(path):
 
     '''
 
+    # Sometimes values are filled after this number, but they should not be active. Will remove them.
+    num_extra_elements = int(read_jset_line(path, 'OutputExtraNamelist.selItems.rows'))
+
     read_lines = []
 
     with open(path + '/' + 'jetto.jset') as f:
@@ -1795,7 +1829,12 @@ def get_extraname_fields(path):
 
     extranamelist = {}
     array_flag = False
+
     for index1, index2, value in zip(indexs1, indexs2, values):
+
+        if index1 > num_extra_elements:
+            continue
+
         if index2 == 0:
             key = value
             extranamelist[key] = []
@@ -1816,7 +1855,6 @@ def get_extraname_fields(path):
         if index2 == 3:
             if value == 'false':
                 extranamelist.pop(key)
-
 
     # Could code something that kills the namelist entry if the third entry does not exists, for legacy purposes
 
@@ -2139,11 +2177,66 @@ def modify_ascot_cntl_line(run_name, line_start, new_content):
             f.writelines(line)
 
 
+def modify_jintrac_launch(run_name, generator_name, generator_username, db, shot, time_begin, time_end):
+
+    '''
+
+    modifies the jintrac_launch file to accomodate a new run name
+
+    '''
+
+    # Not sure why this is needed but seems to be done by jintrac. Not sure is done exactly this way though. Does it matter?
+    #time_begin, time_end = time_begin - 1.0e-9, time_end - 1.0e-9
+    # A + sign and e-7 instead of -9 seem to be necessary to run with HCD...
+    #time_begin, time_end = time_begin + 1.0e-7, time_end + 1.0e-7
+
+    # To do things exactly as jams
+    time_begin = time_begin - (1/2**25)
+    #time_begin = (1/2**24)*(time_begin//(1/2**24)) + (1/2**25)
+    time_begin = (1/2**24)*(time_begin//(1/2**24)) + (1/2**24)
+
+    time_end = time_end - (1/2**25)
+    #time_end = (1/2**24)*(time_end//(1/2**24)) + (1/2**25)
+    time_end = (1/2**24)*(time_end//(1/2**24)) + (1/2**24)
+
+    launch_mappings = {
+        '  shot_in': shot,
+        '  shot_out': shot,
+        '  machine_in': db,
+        '  machine_out': db,
+        '  tend': time_end,
+        '  tstart': time_begin
+    }
+
+    read_data = []
+    username = username = getpass.getuser()
+
+    with open(run_name + '/' + 'jintrac.launch') as f:
+        lines = f.readlines()
+        for line in lines:
+            read_data.append(line)
+
+        for index, line in enumerate(read_data):
+            if generator_name in line:
+                read_data[index] = line.replace(generator_name, run_name)
+            if generator_username:
+                read_data[index] = read_data[index].replace(generator_username, username)
+
+            for key in launch_mappings:
+                if line.startswith(key):
+                    read_data[index] = line.split(':')[0] + ': ' + str(launch_mappings[key]) + '\n'
+        
+
+    with open(run_name + '/' + 'jintrac.launch', 'w') as f:
+        for line in read_data:
+            f.writelines(line)
+
+
 def modify_llcmd(run_name, baserun_name, generator_username):
 
     '''
 
-    modifies the jset file to accomodate a new run name
+    modifies the llcmd file to accomodate a new run name
 
     '''
 
@@ -2252,7 +2345,7 @@ def fit_and_substitute(x_old, x_new, data_old):
     return variable
 
 
-def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, db = 'tcv', misallignements = None, setup_time_polygon_flag = True, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = True, select_impurities_from_ids_flag = True, add_extra_transport_flag = False, density_feedback = True):
+def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_start, times, first_number, generator_name, db = 'tcv', misallignements = None, setup_time_polygon_flag = True, esco_timesteps = 100, set_sep_boundaries = False, boundary_conditions = {}, run_name_end = 'hfps', change_impurity_puff_flag = False, select_impurities_from_ids_flag = True, add_extra_transport_flag = False, density_feedback = True):
 
     run_number = first_number
     if not misallignements:
@@ -2268,7 +2361,7 @@ def run_all_shots(json_input, instructions_list, shot_numbers, runs_input, runs_
 
         json_input['misalignment']['schema'] = misallignement
 
-        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, db = db, esco_timesteps = 100, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, select_impurities_from_ids_flag = select_impurities_from_ids_flag, density_feedback = density_feedback, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
+        run_test = IntegratedModellingRuns(shot_number, instructions_list, generator_name, run_name, run_input = run_input, run_start = run_start, json_input = json_input, db = db, esco_timesteps = esco_timesteps, output_timesteps = 100, time_start = time[0], time_end = time[1], setup_time_polygon_flag = setup_time_polygon_flag, change_impurity_puff_flag = change_impurity_puff_flag, setup_time_polygon_impurities_flag = True, add_extra_transport_flag = add_extra_transport_flag, select_impurities_from_ids_flag = select_impurities_from_ids_flag, density_feedback = density_feedback, force_run = True, force_input_overwrite = True, set_sep_boundaries = set_sep_boundaries, boundary_conditions = boundary_conditions)
 
         try:
             run_test.setup_create_compare()
