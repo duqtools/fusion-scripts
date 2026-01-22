@@ -33,19 +33,27 @@ min_imas_version_str = "3.28.0"
 min_imasal_version_str = "4.7.2"
 
 try:
-    import imas
+    import imas as imas_old
+    from imas import imasdef
 except ImportError:
     warnings.warn("IMAS Python module not found or not configured properly, tools need IDS to work!", UserWarning)
-if imas is not None:
-    from imas import imasdef
-    vsplit = imas.names[0].split("_")
-    imas_version = version.parse(".".join(vsplit[1:4]))
-    ual_version = version.parse(".".join(vsplit[5:]))
-    if imas_version < version.parse(min_imas_version_str):
-        raise ImportError("IMAS version must be >= %s! Aborting!" % (min_imas_version_str))
-    if ual_version < version.parse(min_imasal_version_str):
-        raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
+    imasdef = None
+    imas_old = None
+if imas_old is not None:
+    pass  # imasdef already imported above
+#    vsplit = imas_old.names[0].split("_")
+#    imas_old_version = version.parse(".".join(vsplit[1:4]))
+#    ual_version = version.parse(".".join(vsplit[5:]))
+#    if imas_old_version < version.parse(min_imas_version_str):
+#        raise ImportError("IMAS version must be >= %s! Aborting!" % (min_imas_version_str))
+#    if ual_version < version.parse(min_imasal_version_str):
+#        raise ImportError("IMAS AL version must be >= %s! Aborting!" % (min_imasal_version_str))
 
+
+sys.path.insert(0, "/afs/eufus.eu/user/g/g2mmarin/.local/lib/python3.11/site-packages/")
+import imas as imaspy
+
+from copy_ids_entry import copy_ids_entry
 
 '''
 --------------- AVAILABLE FUNCTIONS: ------------------
@@ -140,7 +148,7 @@ def setup_input(db, shot, run_input, run_start, json_input, time_start = 0, time
     # Checking that all the idss that will be used are free
     if not force_input_overwrite:
         for index in range(run_start - generated_idss_length, run_start, 1):
-            data_entry = imas.DBEntry(backend, db, shot, index, user_name=username)
+            data_entry = imas_old.DBEntry(backend, db, shot, index, user_name=username)
             op = data_entry.open()
 
             if op[0]==0:
@@ -637,7 +645,7 @@ class IntegratedModellingDict:
                             traces[parts[0] + '[' + str(index) + parts[1]] = np.asarray(traces[parts[0] + '[' + str(index) + parts[1]])
                     index += 1
 
-        # Transforming to numpy arrays. Not to be done when dealing with strings, imas does not recognize np.str_
+        # Transforming to numpy arrays. Not to be done when dealing with strings, imas_old does not recognize np.str_
         for key in traces:
             if type(traces[key][0]) != str:
                 traces[key] = np.asarray(traces[key])
@@ -941,7 +949,7 @@ class IntegratedModellingDict:
         for key in self.ids_dict['traces']:
             if len(self.ids_dict['traces'][key]) != 0:
                 if type(self.ids_dict['traces'][key][0]) == str or type(self.ids_dict['traces'][key][0]) == np.str_:
-                    # np.str_ is not recognized by imas. Signals are converted to str.
+                    # np.str_ is not recognized by imas_old. Signals are converted to str.
                     self.ids_dict['traces'][key] = [str(self.ids_dict['traces'][key][0])]
                 elif type(self.ids_dict['traces'][key][0]) == int or type(self.ids_dict['traces'][key][0]) == np.int_:
                     self.ids_dict['traces'][key] = np.asarray([int(np.average(self.ids_dict['traces'][key]))])
@@ -1126,7 +1134,7 @@ class IntegratedModellingDict:
 
     def fill_basic_quantities(self, ids_iden):
     
-        self.ids_struct[ids_iden] = eval('imas.' + ids_iden + '()')
+        self.ids_struct[ids_iden] = eval('imas_old.' + ids_iden + '()')
     
         # Might want to specify this externally
         username=getpass.getuser()
@@ -1170,7 +1178,7 @@ class IntegratedModellingDict:
         ids_iden = 'core_profiles'
         self.fill_basic_quantities(ids_iden)
     
-        profile_1d = imas.core_profiles().profiles_1d.getAoSElement()
+        profile_1d = imas_old.core_profiles().profiles_1d.getAoSElement()
         self.ids_struct[ids_iden].profiles_1d.append(profile_1d)
     
         # Put the profiles in the structure. A new element is created if it's not available
@@ -1179,7 +1187,7 @@ class IntegratedModellingDict:
             if '[' not in tag:
                 for index, profile_1d in enumerate(self.ids_dict['profiles_1d'][tag]):
                     if index >= np.shape(self.ids_struct[ids_iden].profiles_1d)[0]:
-                        element = imas.core_profiles().profiles_1d.getAoSElement()
+                        element = imas_old.core_profiles().profiles_1d.getAoSElement()
                         self.ids_struct[ids_iden].profiles_1d.append(element)
                     rsetattr(self.ids_struct[ids_iden].profiles_1d[index], tag, profile_1d)
             else:
@@ -1258,7 +1266,7 @@ class IntegratedModellingDict:
             if '[' not in tag:
                 for index, profile_2d in enumerate(self.ids_dict['profiles_2d'][tag]):
                     if index >= np.shape(self.ids_struct['equilibrium'].time_slice)[0]:
-                        time_slice = imas.equilibrium().time_slice.getAoSElement()
+                        time_slice = imas_old.equilibrium().time_slice.getAoSElement()
                         self.ids_struct['equilibrium'].time_slice.append(time_slice)
                         profiles_2d = self.ids_struct['equilibrium'].time_slice[0].profiles_2d.getAoSElement()
                         self.ids_struct['equilibrium'].time_slice[index].profiles_2d.append(profiles_2d)
@@ -1271,7 +1279,7 @@ class IntegratedModellingDict:
                 while parts[0] + '[' + str(index2) + parts[1] in self.ids_dict['profiles_2d'].keys():
                     for index1, profile_2d in enumerate(self.ids_dict['profiles_2d'][parts[0] + '[' + str(index2) + parts[1]]):
                         if index1 >= np.shape(self.ids_struct['equilibrium'].time_slice)[0]:
-                            time_slice = imas.equilibrium().time_slice.getAoSElement()
+                            time_slice = imas_old.equilibrium().time_slice.getAoSElement()
                             self.ids_struct['equilibrium'].time_slice.append(time_slice)
                             profiles_2d = self.ids_struct['equilibrium'].time_slice[0].profiles_2d.getAoSElement()
                             self.ids_struct['equilibrium'].time_slice[index1].profiles_2d.append(profiles_2d)
@@ -1284,7 +1292,7 @@ class IntegratedModellingDict:
             if '[' not in tag:
                 for index, profile_1d in enumerate(self.ids_dict['profiles_1d'][tag]):
                     if index >= np.shape(self.ids_struct[ids_iden].time_slice)[0]:
-                        time_slice = imas.equilibrium().time_slice.getAoSElement()
+                        time_slice = imas_old.equilibrium().time_slice.getAoSElement()
                         self.ids_struct[ids_iden].time_slice.append(time_slice)
                         profiles_2d = self.ids_struct[ids_iden].time_slice[0].profiles_2d.getAoSElement()
                         self.ids_struct[ids_iden].time_slice[index].profiles_2d.append(profiles_2d)
@@ -1305,7 +1313,7 @@ class IntegratedModellingDict:
             if '[' not in tag:
                 for index, trace in enumerate(self.ids_dict['traces'][tag]):
                     if index >= np.shape(self.ids_struct[ids_iden].time_slice)[0]:
-                        time_slice = imas.equilibrium().time_slice.getAoSElement()
+                        time_slice = imas_old.equilibrium().time_slice.getAoSElement()
                         self.ids_struct[ids_iden].time_slice.append(time_slice)
                         profiles_2d = self.ids_struct[ids_iden].time_slice[0].profiles_2d.getAoSElement()
                         self.ids_struct[ids_iden].time_slice[0].profiles_2d.append(profiles_2d)
@@ -1487,26 +1495,26 @@ class IntegratedModellingDict:
         if 'b0' in self.ids_dict['extras']:
             if len(self.ids_dict['extras']['b0']) != 1:
             # Might still be needed becouse of bugs and the flipping ip
-                self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference.data = fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_struct[ids_iden].time, self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0'])
+                self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference = fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_struct[ids_iden].time, self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0'])
                 #self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference.data = np.abs(fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_struct[ids_iden].time, self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0']))
             else:
                 #self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference.data = np.abs(self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0'])
-                self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference.data = self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0']
-            self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference.time = self.ids_dict['time']['core_profiles']
+                self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.reference = self.ids_dict['extras']['r0']*self.ids_dict['extras']['b0']
+            #self.ids_struct[ids_iden].tf.b_field_tor_vacuum_r.time = self.ids_dict['time']['core_profiles']
 
         if len(self.ids_dict['traces']['global_quantities.ip']) !=0:
             if len(self.ids_dict['traces']['global_quantities.ip']) != 1:
-                self.ids_struct[ids_iden].flux_control.i_plasma.reference.data = fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_struct[ids_iden].time, self.ids_dict['traces']['global_quantities.ip'])
+                self.ids_struct[ids_iden].flux_control.i_plasma.reference = fit_and_substitute(self.ids_dict['time']['equilibrium'], self.ids_struct[ids_iden].time, self.ids_dict['traces']['global_quantities.ip'])
             else:
                 self.ids_struct[ids_iden].flux_control.i_plasma.reference.data = self.ids_dict['traces']['global_quantities.ip']
-            self.ids_struct[ids_iden].flux_control.i_plasma.reference.time = self.ids_dict['time']['core_profiles']
+            #self.ids_struct[ids_iden].flux_control.i_plasma.reference.time = self.ids_dict['time']['core_profiles']
 
         if len(self.ids_dict['traces']['line_average.n_e.value']) !=0:
             if len(self.ids_dict['traces']['line_average.n_e.value']) != 1:
-                self.ids_struct[ids_iden].density_control.n_e_line.reference.data = fit_and_substitute(self.ids_dict['time']['summary'], self.ids_struct[ids_iden].time, self.ids_dict['traces']['line_average.n_e.value'])
+                self.ids_struct[ids_iden].density_control.n_e_line.reference = fit_and_substitute(self.ids_dict['time']['summary'], self.ids_struct[ids_iden].time, self.ids_dict['traces']['line_average.n_e.value'])
             else:
-                self.ids_struct[ids_iden].density_control.n_e_line.reference.data = self.ids_dict['traces']['line_average.n_e.value']
-            self.ids_struct[ids_iden].density_control.n_e_line.reference.time = self.ids_dict['time']['core_profiles']
+                self.ids_struct[ids_iden].density_control.n_e_line.reference = self.ids_dict['traces']['line_average.n_e.value']
+            #self.ids_struct[ids_iden].density_control.n_e_line.reference.time = self.ids_dict['time']['core_profiles']
 
 
         #fit_and_substitute(old_times, new_times, self.ids_dict['profiles_1d'][key][:,i])
@@ -1660,6 +1668,7 @@ def rebase_integrated_modelling(db, shot, run, run_target, changing_idss, option
 
     put_integrated_modelling(db, shot, run, run_target, ids_data.ids_struct, backend = backend)
 
+
 def smooth_t_and_d_ids_new(db, shot, run, db_target, shot_target, run_target, username = None, username_target = None, backend = None):
 
     '''
@@ -1706,9 +1715,9 @@ def open_integrated_modelling(db, shot, run, username=None, backend=None):
     if not backend: backend = get_backend(db, shot, run)
 
     if not username:
-        data_entry = imas.DBEntry(backend, db, shot, run, user_name=getpass.getuser())
+        data_entry = imas_old.DBEntry(backend, db, shot, run, user_name=getpass.getuser())
     else:
-        data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
+        data_entry = imas_old.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1741,7 +1750,7 @@ def get_backend(db, shot, run, username=None):
     if not username: username = getpass.getuser()
 
     imas_backend = imasdef.HDF5_BACKEND
-    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry = imas_old.DBEntry(imas_backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
     if op[0]<0:
@@ -1749,7 +1758,7 @@ def get_backend(db, shot, run, username=None):
 
     data_entry.close()
 
-    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry = imas_old.DBEntry(imas_backend, db, shot, run, user_name=username)
     op = data_entry.open()
     if op[0]<0:
         print('Input does not exist. Aborting generation')
@@ -1764,7 +1773,7 @@ def open_and_get_ids(db, shot, run, ids_name, username=None, backend=None):
     if not backend: backend = get_backend(db, shot, run)
     if not username: username = getpass.getuser()
 
-    data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
+    data_entry = imas_old.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1787,7 +1796,7 @@ def open_and_get_nbi(db, shot, run, username=None, backend=None):
     if not username: username = getpass.getuser()
     if not backend: backend = get_backend(db, shot, run)
 
-    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    data_entry = imas_old.DBEntry(imas_backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1814,7 +1823,7 @@ def open_and_get_all(db, shot, run, username=None, backend=None):
     if not username: username = getpass.getuser()
     if not backend: backend = get_backend(db, shot, run)
 
-    data_entry = imas.DBEntry(backend, db, shot, run, user_name=username)
+    data_entry = imas_old.DBEntry(backend, db, shot, run, user_name=username)
 
     op = data_entry.open()
 
@@ -1841,7 +1850,7 @@ def put_integrated_modelling(db, shot, run, run_target, ids_struct, backend=None
     username = getpass.getuser()
     copy_ids_entry(db, shot, run, run_target, username=username, backend=backend)
 
-    data_entry = imas.DBEntry(backend, db, shot, run_target, user_name=username)
+    data_entry = imas_old.DBEntry(backend, db, shot, run_target, user_name=username)
     #ids_list = ['core_profiles', 'core_sources', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
     ids_list = ['core_profiles', 'ec_launchers', 'equilibrium', 'nbi', 'summary', 'thomson_scattering', 'pulse_schedule']
 
@@ -1920,7 +1929,7 @@ def set_flat_Zeff(db, shot, run, run_target, option, value = None, db_target = N
 
     copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(backend, db, shot, run_target, user_name=username)
+    data_entry_target = imas_old.DBEntry(backend, db, shot, run_target, user_name=username)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
@@ -2100,7 +2109,7 @@ def create_dummy_core_sources(db, shot, run_input, run_start, username = None, d
 
     ids_data.ids_struct['core_sources'].time = np.asarray([0])
 
-    source_dummy = imas.core_sources().source.getAoSElement()
+    source_dummy = imas_old.core_sources().source.getAoSElement()
     profiles_1d_dummy = source_dummy.profiles_1d.getAoSElement()
     global_quantities_dummy = source_dummy.global_quantities.getAoSElement()
 
@@ -2554,7 +2563,7 @@ def flip_q_profile(db, shot, run, run_target, username = None, db_target = None,
 
     copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
+    data_entry_target = imas_old.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
@@ -2588,7 +2597,7 @@ def use_flat_q_profile(db, shot, run, run_target, username = None, db_target = N
 
     copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
+    data_entry_target = imas_old.DBEntry(backend, db_target, shot_target, run_target, user_name=username_target)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
@@ -2618,7 +2627,7 @@ def use_flat_vloop(db, shot, run, run_target, username = None, db_target = None,
 
     copy_ids_entry(db, shot, run, run_target, db_target = db_target, shot_target = shot_target, username = username, username_target = username_target, backend = backend)
 
-    data_entry_target = imas.DBEntry(backend, db, shot, run_target, user_name=username)
+    data_entry_target = imas_old.DBEntry(backend, db, shot, run_target, user_name=username)
 
     op = data_entry_target.open()
     core_profiles.put(db_entry = data_entry_target)
@@ -2657,7 +2666,7 @@ def flip_ip(db, shot, run, run_target, username = None, db_target = None, shot_t
 
     equilibrium_new.vacuum_toroidal_field.b0 = -equilibrium.vacuum_toroidal_field.b0
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     equilibrium_new.put(db_entry = data_entry_target)
@@ -2680,7 +2689,7 @@ def flip_angf(db, shot, run, run_target, username = None, db_target = None, shot
     for itime, profile_1d in enumerate(core_profiles.profiles_1d):
         core_profiles_new.profiles_1d[itime].rotation_frequency_tor_sonic = -core_profiles.profiles_1d[itime].rotation_frequency_tor_sonic
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     core_profiles_new.put(db_entry = data_entry_target)
@@ -2736,7 +2745,7 @@ def smooth_xpoint_equilibrium(db, shot, run, run_target, username = None, db_tar
     #plt.show()
     #exit()
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     equilibrium_new.put(db_entry = data_entry_target)
@@ -2891,7 +2900,7 @@ def prepare_equilibrium_psi(db, shot, run, run_target, username = None, db_targe
 
     '''
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     equilibrium_new.put(db_entry = data_entry_target)
@@ -2918,7 +2927,7 @@ def impose_linear_ip(db, shot, run, run_target, array_ip, array_time, username =
     for itime, time_slice in enumerate(equilibrium.time_slice):
         equilibrium_new.time_slice[itime].global_quantities.ip = ip[itime]
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     equilibrium_new.put(db_entry = data_entry_target)
@@ -2949,7 +2958,7 @@ def impose_linear_nel(db, shot, run, run_target, array_nel, array_time, username
     pulse_schedule.density_control.n_e_line.reference.data = nel_pulse_schedule
     summary.line_average.n_e.value = nel_summary
 
-    data_entry_target = imas.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
+    data_entry_target = imas_old.DBEntry(backend, db, shot_target, run_target, user_name=getpass.getuser())
 
     op = data_entry_target.open()
     summary.put(db_entry = data_entry_target)
@@ -4306,7 +4315,7 @@ class LoggingContext:
             self.handler.close()
 
 
-def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ids_list = [], backend = None, verbose = False):
+def copy_ids_entry_old(db, shot, run, run_target, db_target = None, shot_target = None, username = None, username_target = None, ids_list = [], backend = None, verbose = False):
 
     '''
 
@@ -4328,15 +4337,15 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
     parser = Parser()
     xml.sax.parse(path, parser)
 
-    vsplit = imas.names[0].split("_")
+    vsplit = imas_old.names[0].split("_")
     imas_version = version.parse(".".join(vsplit[1:4]))
     imas_major_version = str(imas_version)[0]
     ual_version = version.parse(".".join(vsplit[5:]))
 
     print('Opening', username, db, imas_version, shot, run)
 
-    idss_in = imas.DBEntry(backend, db, shot, run, user_name=username)
-    idss_in = imas.ids(shot, run)
+    idss_in = imas_old.DBEntry(backend, db, shot, run, user_name=username)
+    idss_in = imas_old.ids(shot, run)
     op = idss_in.open_env_backend(username, db, imas_major_version, backend)
 
     if op[0]<0:
@@ -4345,10 +4354,10 @@ def copy_ids_entry(db, shot, run, run_target, db_target = None, shot_target = No
 
     print('Creating', username_target, db, imas_version, shot_target, run_target)
 
-    #idss_out = imas.ids(shot_target, run_target)
+    #idss_out = imas_old.ids(shot_target, run_target)
     #idss_out.create_env_backend(username_target, db_target, imas_major_version, backend)
 
-    idss_out = imas.DBEntry(backend, db_target, shot_target, run_target)
+    idss_out = imas_old.DBEntry(backend, db_target, shot_target, run_target)
     idx = idss_out.create()[1]
 
     with LoggingContext(level=logging.CRITICAL):
