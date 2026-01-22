@@ -31,7 +31,7 @@ from scipy.interpolate import interp1d, UnivariateSpline
 from packaging import version
 from os import path
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Callable
 
 # Force use of site-provided imas (with imasdef) instead of user imaspy
 # Do this BEFORE importing prepare_im_input which also tries to import imas
@@ -2246,6 +2246,95 @@ class IntegratedModellingRuns:
 # ============================================================================
 
 
+def _modify_file_line_generic(
+    file_path: str,
+    line_prefix: str,
+    new_content: Any,
+    *,
+    position: int | None = None,
+    value_separator: str = ':',
+    formatter: Optional[Callable[[Any], str]] = None,
+) -> None:
+    """Generic line modifier used by jset/jetto.in/jetto.sin helpers.
+
+    Reads the file, finds the first line starting with ``line_prefix`` and
+    rewrites the value portion using either a fixed character position
+    (``position``) or a separator-based replacement (``value_separator``).
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the file to update.
+    line_prefix : str
+        Leading text to match a target line.
+    new_content : Any
+        Value to write; formatted by ``formatter`` when provided.
+    position : int | None, optional
+        If set, replace content starting at this character index.
+        If None, fall back to separator-based replacement.
+    value_separator : str, optional
+        Separator token for key/value lines (default ``:``).
+    formatter : callable | None, optional
+        Optional callable to convert ``new_content`` into a string. If not
+        provided, default formatting rules for float/int/list/str are used.
+    """
+    if not os.path.exists(file_path):
+        print(f"WARNING: file not found: {file_path}")
+        return
+
+    try:
+        lines = read_file(file_path)
+    except Exception as exc:  # file read errors should not crash workflow
+        print(f"WARNING: could not read {file_path}: {exc}")
+        return
+
+    user_formatter = formatter is not None
+
+    def _format_content(value: Any) -> str:
+        if formatter:
+            return formatter(value)
+        if isinstance(value, float):
+            return f"{value:.3E}"
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, (list, np.ndarray)):
+            return '  '.join(f"{v:.3E}" for v in value)
+        return str(value)
+
+    updated = False
+    prefix_len = len(line_prefix)
+
+    for idx, line in enumerate(lines):
+        if line.startswith(line_prefix):
+            if position is not None:
+                # Position-based replacement (e.g., jset column-aligned fields)
+                lines[idx] = line[:position] + _format_content(new_content) + "\n"
+            else:
+                # Separator-based replacement (e.g., jetto.in with '=')
+                if value_separator in line:
+                    left, _sep, _right = line.partition(value_separator)
+                    content = _format_content(new_content)
+                    if not user_formatter:
+                        if isinstance(new_content, (list, np.ndarray)):
+                            # Preserve trailing comma/space style used in jetto.in
+                            content = '  ' + content.replace('  ', '  ') + ' , '
+                        elif isinstance(new_content, (float, int)):
+                            content = f'  {content} , '
+                        else:
+                            content = f' {content}'
+                    lines[idx] = f"{left}{value_separator}{content}\n"
+                else:
+                    lines[idx] = f"{line_prefix}{value_separator} {_format_content(new_content)}\n"
+            updated = True
+            break
+
+    if updated:
+        try:
+            write_file(file_path, lines)
+        except Exception as exc:
+            print(f"WARNING: could not write {file_path}: {exc}")
+
+
 def copy_files(source_folder: str, destination_folder: str) -> None:
     """
     Copy all files from source to destination folder.
@@ -2472,14 +2561,13 @@ def modify_jset_line(run_name: str, line_start: str, new_content: Any) -> None:
         New content to write
     """
     file_path = f'{run_name}/jetto.jset'
-    read_data = read_file(file_path)
-    
-    len_line_start = len(line_start)
-    for index, line in enumerate(read_data):
-        if line[:len_line_start] == line_start:
-            read_data[index] = line[:62] + str(new_content) + '\n'
-    
-    write_file(file_path, read_data)
+    _modify_file_line_generic(
+        file_path,
+        line_start,
+        new_content,
+        position=62,
+        value_separator=':'
+    )
 
 
 def delete_jset_value_in_line(run_name: str, line_start: str) -> None:
@@ -2649,26 +2737,31 @@ def modify_jettoin_line(run_name: str, line_start: str, new_content: Any) -> Non
         New content (will be formatted appropriately)
     """
     file_path = f'{run_name}/jetto.in'
-    read_data = read_file(file_path)
-    
-    # Ensure line_start ends with '='
+
+    # Ensure line_start ends with '=' and spacing consistent with existing format
     if not line_start.endswith('='):
         num_spaces = len(line_start)
         line_start = line_start + (11 - num_spaces) * ' ' + '='
-    
-    for index, line in enumerate(read_data):
-        if line.startswith(line_start):
-            if isinstance(new_content, float):
-                read_data[index] = f'{line_start}  {new_content:.3E} , \n'
-            elif isinstance(new_content, int):
-                read_data[index] = f'{line_start}  {new_content} , \n'
-            elif isinstance(new_content, (list, np.ndarray)):
-                formatted_values = '  ' + '  '.join(f'{v:.3E} ,' for v in new_content)
-                read_data[index] = f'{line_start}{formatted_values} \n'
-            elif isinstance(new_content, str):
-                read_data[index] = f'{line_start} {new_content}\n' if new_content != '\n' else new_content
-    
-    write_file(file_path, read_data)
+
+    def _format_nml(value: Any) -> str:
+        if isinstance(value, float):
+            return f'  {value:.3E} , '
+        if isinstance(value, int):
+            return f'  {value} , '
+        if isinstance(value, (list, np.ndarray)):
+            return '  ' + '  '.join(f'{v:.3E} ,' for v in value) + ' '
+        if isinstance(value, str):
+            return f' {value}' if value != '\n' else value
+        return f' {value}'
+
+    _modify_file_line_generic(
+        file_path,
+        line_start,
+        new_content,
+        position=None,
+        value_separator='=',
+        formatter=_format_nml,
+    )
 
 
 def modify_jettoin_time_polygon(path_jetto_in: str, time_start: float, time_end: float) -> None:
@@ -2750,13 +2843,13 @@ def modify_ascot_cntl_line(run_name: str, line_start: str, new_content: str) -> 
         New content to write
     """
     file_path = f'{run_name}/ascot.cntl'
-    read_data = read_file(file_path)
-    
-    for index, line in enumerate(read_data):
-        if line.startswith(line_start):
-            read_data[index] = line[:42] + new_content + '\n'
-    
-    write_file(file_path, read_data)
+    _modify_file_line_generic(
+        file_path,
+        line_start,
+        new_content,
+        position=42,
+        value_separator=':'
+    )
 
 
 def modify_jintrac_launch(run_name: str, generator_name: str, generator_username: str,
@@ -2789,27 +2882,43 @@ def modify_jintrac_launch(run_name: str, generator_name: str, generator_username
     
     file_path = f'{run_name}/jintrac.launch'
     read_data = read_file(file_path)
-    
+
+    # First replace generator/run identifiers and usernames
     current_username = getpass.getuser()
-    mappings = {
+    replacements = {
         generator_name: run_name,
         generator_username: current_username,
-        '  shot_in': str(shot),
-        '  shot_out': str(shot),
-        '  machine_in': db,
-        '  machine_out': db,
-        '  tstart': str(time_begin),
-        '  tend': str(time_end)
     }
-    
+
     updated = []
     for line in read_data:
         modified_line = line
-        for pattern, replacement in mappings.items():
+        for pattern, replacement in replacements.items():
             modified_line = modified_line.replace(pattern, replacement)
         updated.append(modified_line)
-    
+
     write_file(file_path, updated)
+
+    # Then enforce scalar fields via consolidated helper (avoids ad-hoc string slicing)
+    def _plain(val: Any) -> str:
+        return f' {val}'
+
+    for prefix, value in [
+        ('  shot_in', shot),
+        ('  shot_out', shot),
+        ('  machine_in', db),
+        ('  machine_out', db),
+        ('  tstart', time_begin),
+        ('  tend', time_end),
+    ]:
+        _modify_file_line_generic(
+            file_path,
+            prefix,
+            value,
+            position=None,
+            value_separator=':',
+            formatter=_plain,
+        )
 
 
 def modify_llcmd(run_name: str, baserun_name: str, generator_username: str) -> None:
@@ -3207,6 +3316,22 @@ def modify_jettosin_time_polygon_single(path_jetto_sin: str, fields: List[str], 
     write_file(path_jetto_sin, lines)
 
 
+def _apply_jset_time_polygon(run_name: str, prefix: str, times: List[float], values: List[float]) -> None:
+    """Shared helper to write time-polygon structures into jetto.jset."""
+    config_fields = [f'{prefix}.tpoly.option']
+    config_fields.extend([f'{prefix}.tpoly.select[{i}]' for i in range(len(times))])
+    config_fields.extend([f'{prefix}.tpoly.time[{i}]' for i in range(len(times))])
+    config_fields.extend([f'{prefix}.tpoly.value[{i}]' for i in range(len(times))])
+
+    config_values = ['Time Dependent']
+    config_values.extend(['true'] * len(times))
+    config_values.extend([str(t) for t in times])
+    config_values.extend([str(v) for v in values])
+
+    for field, value in zip(config_fields, config_values):
+        modify_jset_line(run_name, field, value)
+
+
 def modify_jset_time_polygon(run_name: str, time_start: float, time_end: float) -> None:
     """
     Setup time-dependent maximum timestep polygon in jset.
@@ -3222,19 +3347,8 @@ def modify_jset_time_polygon(run_name: str, time_start: float, time_end: float) 
     """
     times = [time_start, time_start + 0.001, time_start + 0.01, time_start + 0.02, time_end]
     values = [2.0e-6, 4.0e-6, 2.0e-4, 1.0e-3, 1.0e-3]
-    
-    config_fields = ['SetUpPanel.maxTimeStep.option']
-    config_fields.extend([f'SetUpPanel.maxTimeStep.tpoly.select[{i}]' for i in range(len(times))])
-    config_fields.extend([f'SetUpPanel.maxTimeStep.tpoly.time[{i}]' for i in range(len(times))])
-    config_fields.extend([f'SetUpPanel.maxTimeStep.tpoly.value[{i}]' for i in range(len(times))])
-    
-    config_values = ['Time Dependent']
-    config_values.extend(['true'] * len(times))
-    config_values.extend([str(t) for t in times])
-    config_values.extend([str(v) for v in values])
-    
-    for field, value in zip(config_fields, config_values):
-        modify_jset_line(run_name, field, value)
+
+    _apply_jset_time_polygon(run_name, 'SetUpPanel.maxTimeStep', times, values)
 
 
 def modify_jset_time_polygon_puff(run_name: str, time_start: float, time_end: float, puff_value: float) -> None:
@@ -3254,19 +3368,8 @@ def modify_jset_time_polygon_puff(run_name: str, time_start: float, time_end: fl
     """
     times = [time_start, time_start + 0.1, time_end]
     values = [0.0, puff_value, puff_value]
-    
-    config_fields = ['SancoBCPanel.Species1NeutralInflux.tpoly.option']
-    config_fields.extend([f'SancoBCPanel.Species1NeutralInflux.tpoly.select[{i}]' for i in range(len(times))])
-    config_fields.extend([f'SancoBCPanel.Species1NeutralInflux.tpoly.time[{i}]' for i in range(len(times))])
-    config_fields.extend([f'SancoBCPanel.Species1NeutralInflux.tpoly.value[{i}]' for i in range(len(times))])
-    
-    config_values = ['Time Dependent']
-    config_values.extend(['true'] * len(times))
-    config_values.extend([str(t) for t in times])
-    config_values.extend([str(v) for v in values])
-    
-    for field, value in zip(config_fields, config_values):
-        modify_jset_line(run_name, field, value)
+
+    _apply_jset_time_polygon(run_name, 'SancoBCPanel.Species1NeutralInflux', times, values)
 
 
 # ============================================================================
