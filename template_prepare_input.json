@@ -4,6 +4,7 @@
         "average": false,
         "rebase": false,
         "nbi heating": false,
+        "ec heating": false,
         "add early profiles": false,
         "peak temperature": false,
         "peak profiles": false,
