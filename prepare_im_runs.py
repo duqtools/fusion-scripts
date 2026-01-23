@@ -530,9 +530,9 @@ class IntegratedModellingRuns:
         if self.set_sep_boundaries:
             self.setup_boundary_values()
         
-        # Configure jset file
-        self.modify_jset(self.path, self.baserun_name, self.run_start,
-                        self.run_output, abs(b0), r0)
+        # Note: B0/R0 magnetic field and radius are now configured via jetto_tools
+        # config API in setup_jetto_simulation(). Templates without btin/rmj support
+        # will skip these settings gracefully (no fallback mechanism).
         
         # Setup NBI if enabled
         if self.setup_nbi_flag:
@@ -1038,8 +1038,17 @@ class IntegratedModellingRuns:
         # 3. The fallback _modify_jetto_in_direct writes decorative headers that f90nml can't parse
         # If specific namelist modifications are needed, they should be done via config API
         
-        # Note: btin and rmj cannot be set via config API (not in namelist)
-        # They will be set via modify_jset() direct file manipulation
+        # Attempt to set magnetic field and major radius via config API
+        # Newer templates (e.g., rungenerator_ohmic_vscode2) expose these
+        try:
+            config['btin'] = abs(b0)
+        except Exception:
+            pass
+        try:
+            # r0 expected in cm for jset EquilEscoRefPanel.refMajorRadius
+            config['rmj'] = r0
+        except Exception:
+            pass
         
         # Configure timesteps
         try:
@@ -1437,53 +1446,6 @@ class IntegratedModellingRuns:
         # All good; actual writing happens in modify_jetto_in_via_jetto_tools()
         print('✓ Density feedback validated; writing handled via jetto_tools.')
 
-    def modify_jset(self, path: str, run_name: str, ids_number: int,
-                   ids_output_number: int, b0: float, r0: float) -> None:
-        """
-        Configure jset file with run-specific parameters (fallback method).
-        
-        Note: Primary configuration now happens via jetto_tools config API in 
-        setup_jetto_simulation(). This method provides fallback direct file 
-        modifications for any parameters that couldn't be set via config API.
-        
-        Parameters
-        ----------
-        path : str
-            Base path for runs directory
-        run_name : str
-            Name of the baserun directory
-        ids_number : int
-            Input IDS run number
-        ids_output_number : int
-            Output IDS run number
-        b0 : float
-            Toroidal magnetic field [T]
-        r0 : float
-            Major radius [cm]
-        """
-        # Map configuration parameters for direct file manipulation
-        # Note: btin/rmj are JSET-only parameters (not in namelist) so must be set here
-        fallback_config_map = {
-            'Creation Name': f'{path}{run_name}/jetto.jset',
-            'JobProcessingPanel.runDirNumber': run_name[3:],
-            'AdvancedPanel.catMachID': self.db,
-            'AdvancedPanel.catMachID_R': self.db,
-            'AdvancedPanel.catOwner': self.username,
-            'AdvancedPanel.catOwner_R': self.username,
-            'AdvancedPanel.catShotID': str(self.shot),
-            'AdvancedPanel.catShotID_R': str(self.shot),
-            'EquilEscoRefPanel.BField.ConstValue': str(b0),
-            'EquilEscoRefPanel.BField ': str(b0),
-            'EquilEscoRefPanel.refMajorRadius': str(r0)
-        }
-        
-        # Apply fallback modifications if needed
-        for field_name, value in fallback_config_map.items():
-            try:
-                modify_jset_line(run_name, field_name, value)
-            except Exception as e:
-                print(f'WARNING: Could not modify jset field {field_name}: {e}')
-
     def modify_ascot_cntl(self, run_name: str) -> None:
         """
         Configure ascot.cntl file with run path.
@@ -1689,118 +1651,7 @@ class IntegratedModellingRuns:
             if 'TPRINT' in str(e).upper():
                 # Do not fall back to direct writes; generator must provide array TPRINT
                 raise
-            print(f"WARNING: Could not modify jetto.in via jetto_tools: {e}")
-            print("  Falling back to direct file modification...")
-            # Fall back to direct file modification for density feedback
-            self._modify_jetto_in_direct(run_name, r0, b0, time_start, time_end, 
-                                        num_times_print, num_times_eq, interpretive_flag)
-
-    def _modify_jetto_in_direct(self, run_name: str, r0: float, b0: float,
-                               time_start: float, time_end: float,
-                               num_times_print: Optional[int] = None,
-                               num_times_eq: Optional[int] = None,
-                               interpretive_flag: bool = False) -> None:
-        """
-        Direct modification of jetto.in file for density feedback (fallback method).
-        
-        This method directly modifies the Fortran namelist in jetto.in when
-        the jetto_tools Namelist API fails. Specifically handles density feedback
-        arrays (DNEFLFB and DTNEFLFB) in NLIST4.
-        
-        Parameters
-        ----------
-        run_name : str
-            Path to the run directory
-        r0 : float
-            Major radius (m)
-        b0 : float
-            Toroidal magnetic field at r0 (T)
-        time_start : float
-            Simulation start time (s)
-        time_end : float
-            Simulation end time (s)
-        num_times_print : int | None, optional
-            Number of output time points
-        num_times_eq : int | None, optional
-            Number of equilibrium time points
-        interpretive_flag : bool, optional
-            Whether to run in interpretive mode (default: False)
-        """
-        try:
-            jetto_in_path = f'{run_name}/jetto.in'
-            
-            # Read jetto.in file
-            with open(jetto_in_path, 'r') as f:
-                read_data = f.readlines()
-            
-            # Find NLIST4 section
-            nlist4_start = None
-            nlist4_end = None
-            for i, line in enumerate(read_data):
-                if line.strip().startswith('&NLIST4'):
-                    nlist4_start = i
-                if nlist4_start is not None and line.strip().startswith('&END'):
-                    nlist4_end = i
-                    break
-            
-            if nlist4_start is None or nlist4_end is None:
-                print(f"WARNING: Could not find NLIST4 section in {jetto_in_path}")
-                return
-            
-            # Remove old DNEFLFB and DTNEFLFB arrays if present
-            lines_to_remove = []
-            for i in range(nlist4_start, nlist4_end):
-                if read_data[i].strip().startswith(('DNEFLFB', 'DTNEFLFB')):
-                    lines_to_remove.append(i)
-            
-            # Remove in reverse order to preserve indices
-            for i in reversed(lines_to_remove):
-                read_data.pop(i)
-                nlist4_end -= 1  # Adjust end index
-            
-            # Add DNEFLFB array if density feedback data available
-            if self.line_ave_density is not None and len(self.line_ave_density) > 0:
-                # Insert DNEFLFB lines after NLIST4 declaration (after a few lines for readability)
-                insert_index = nlist4_start + 10
-                
-                # Create DNEFLFB lines
-                dneflfb_lines = []
-                for idx, dens_value in enumerate(self.line_ave_density):
-                    # Convert from m^-3 to 10^-6 m^-3
-                    dneflfb_value = dens_value * 1e-6
-                    dneflfb_line = f'  DNEFLFB({idx+1})=  {dneflfb_value:.6e}    , \n'
-                    dneflfb_lines.append(dneflfb_line)
-                
-                # Insert DNEFLFB lines
-                for i, line in enumerate(dneflfb_lines):
-                    read_data.insert(insert_index + i, line)
-                    nlist4_end += 1
-                
-                # Insert DTNEFLFB array after DNEFLFB
-                insert_index = nlist4_start + 10 + len(dneflfb_lines)
-                
-                dtneflfb_lines = []
-                for idx, time_value in enumerate(self.dens_feedback_time):
-                    dtneflfb_line = f'  DTNEFLFB({idx+1})=  {time_value}    , \n'
-                    dtneflfb_lines.append(dtneflfb_line)
-                
-                # Insert DTNEFLFB lines
-                for i, line in enumerate(dtneflfb_lines):
-                    read_data.insert(insert_index + i, line)
-                    nlist4_end += 1
-                
-                print(f"✓ Added {len(dneflfb_lines)} DNEFLFB and {len(dtneflfb_lines)} DTNEFLFB lines to jetto.in")
-            
-            # Write modified file back
-            with open(jetto_in_path, 'w') as f:
-                f.writelines(read_data)
-            
-            print(f"✓ Modified jetto.in directly (fallback method) for {run_name}")
-            
-        except Exception as e:
-            print(f"ERROR in direct jetto.in modification: {e}")
-            import traceback
-            traceback.print_exc()
+            raise RuntimeError(f"jetto_tools namelist update failed for jetto.in: {e}")
 
     def setup_feedback_on_density_jset(self) -> None:
         """
