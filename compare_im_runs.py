@@ -6,8 +6,11 @@ import copy
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate   import cumtrapz
-#import matplotlib
-#matplotlib.use('Qt5Agg')
+
+os.environ['MPLBACKEND'] = 'Qt5Agg'
+
+import matplotlib
+matplotlib.use('Qt5Agg', force=True)
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 from IPython import display
