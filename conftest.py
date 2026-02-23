@@ -135,6 +135,12 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "requires_data: tests requiring specific shot data"
     )
+    config.addinivalue_line(
+        "markers", "interpolation: tests for IDS interpolation functionality"
+    )
+    config.addinivalue_line(
+        "markers", "lazy_load: tests for lazy loading functionality"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
