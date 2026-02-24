@@ -25,20 +25,22 @@ MIN_IMASAL_VERSION = version.parse("4.7.2")
 """
 Check if the installed version of IMAS and IMAS-AL satisfies the minimum version requirements.
 """
-try:
-    import imas
-except ImportError:
-    warnings.warn("IMAS Python module not found or not configured properly, tools need IDS to work!", UserWarning)
-if imas is not None:
-    from imas import imasdef
-    vsplit = imas.names[0].split("_")
-    imas_version = version.parse(".".join(vsplit[1:4]))
-    ual_version = version.parse(".".join(vsplit[5:]))
-    imas_backend = imasdef.HDF5_BACKEND
-    if imas_version < MIN_IMAS_VERSION:
-        raise ImportError("IMAS version must be >= %s! Aborting!" % (MIN_IMAS_VERSION))
-    if ual_version < MIN_IMASAL_VERSION:
-        raise ImportError("IMAS AL version must be >= %s! Aborting!" % (MIN_IMASAL_VERSION))
+#try:
+#    import imas
+#except ImportError:
+#    warnings.warn("IMAS Python module not found or not configured properly, tools need IDS to work!", UserWarning)
+#if imas is not None:
+#    from imas import imasdef
+#    vsplit = imas.names[0].split("_")
+#    imas_version = version.parse(".".join(vsplit[1:4]))
+#    ual_version = version.parse(".".join(vsplit[5:]))
+#    imas_backend = imasdef.HDF5_BACKEND
+#    if imas_version < MIN_IMAS_VERSION:
+#        raise ImportError("IMAS version must be >= %s! Aborting!" % (MIN_IMAS_VERSION))
+#    if ual_version < MIN_IMASAL_VERSION:
+#        raise ImportError("IMAS AL version must be >= %s! Aborting!" % (MIN_IMASAL_VERSION))
+
+import imas
 
 
 def input():
@@ -868,25 +870,47 @@ def get_time_begin_and_end(db, shot, run_output, time_begin, time_end):
 
 def get_backend(db, shot, run, username=None):
 
-    if not username: username = getpass.getuser()
+    if not username:
+        username = getpass.getuser()
 
-    imas_backend = imasdef.HDF5_BACKEND
-    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
+    if isinstance(username, str) and username.startswith('/'):
+        base_path = f"{username}/{db}/3/{shot}/{run}"
+    else:
+        base_path = f"/afs/eufus.eu/user/g/{username}/public/imasdb/{db}/3/{shot}/{run}"
 
-    op = data_entry.open()
-    if op[0]<0:
-        imas_backend = imasdef.MDSPLUS_BACKEND
+    def _open_ok(op):
+        status = op[0] if isinstance(op, (tuple, list)) else op
+        return status >= 0
 
-    data_entry.close()
+    detected_scheme = None
+    for scheme in ('hdf5', 'mdsplus'):
+        url = f"imas:{scheme}?path={base_path}"
+        data_entry = None
+        try:
+            data_entry = imas.DBEntry(url, 'r')
+            op = data_entry.open()
+            if _open_ok(op):
+                detected_scheme = scheme
+                break
+        except Exception:
+            pass
+        finally:
+            if data_entry is not None:
+                try:
+                    data_entry.close()
+                except Exception:
+                    pass
 
-    data_entry = imas.DBEntry(imas_backend, db, shot, run, user_name=username)
-    op = data_entry.open()
-    if op[0]<0:
+    if detected_scheme is None:
         print('Input does not exist. Aborting generation')
+        return None
 
-    data_entry.close()
+    if hasattr(imas, 'imasdef'):
+        if detected_scheme == 'hdf5':
+            return imas.imasdef.HDF5_BACKEND
+        return imas.imasdef.MDSPLUS_BACKEND
 
-    return imas_backend
+    return detected_scheme
 
 
 def open_and_get_ids(db, shot, ids_name, run, username=None, backend=None, show_fit = False):
