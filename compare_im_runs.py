@@ -199,6 +199,9 @@ def input():
 ---
 Examples:\n
 python compare_im_runs.py --ids 'g2aho/jet/94875/1' 'g2aho/jet/94875/102' --time_begin 48 --time_end 49 --steady_state -sig 'core_profiles.profiles_1d[].q' 'summary.global_quantities.li.value'\n
+
+python compare_im_runs.py --ids 'g2mmarin/tcv/64954/5' 'g2mmarin/tcv/64954/10' --time_begin 0.1 --time_end 0.2 --analyze -sig 'core_profiles.profiles_1d[].t_i_average' --use_regular_rho_grid --verbose --error_type 'relative' --backend hdf5 --labels 'g2mmarin/tcv/64954/5:12' 'g2mmarin/tcv/64954/10:13' --y_limits 50 500
+
 ---
 """, 
     epilog="", 
@@ -621,13 +624,14 @@ def create_run_label(pdata, run, first_run = False, labels=None):
 
     run_label=None
 
+    if first_run == run:
+        run_label = 'Experimental measurement'
+
     if labels:
         for label in labels:
             if isolate_run_name(run) in label:
+                if ':' in label: label=label.replace(':', '')
                 run_label = label.replace(isolate_run_name(run), '')
-
-    if first_run == run:
-        run_label = 'Experimental measurement'
 
     if not run_label:
         if len(pdata) == 2 and (first_run != run):
@@ -809,7 +813,7 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False, la
             plt.close()
 
 
-def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
+def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None, y_limits=None):
     signal_list = interpolated_data["profile_signals"] if "profile_signals" in interpolated_data else keys_list['profiles_1d']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -827,6 +831,10 @@ def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
                 ax.set_xlabel(r'$\rho_{tor,norm}$', fontsize = fontsize_labels)
                 ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
 
+                if y_limits:
+                    ymin=y_limits[0]
+                    ymax=y_limits[1]
+
                 title = get_label_variable(signame, show_units=False)
 
                 ax.set_title(title + ' at t = {time:.3f}'.format(time=interpolated_data[signame+".t"][tidx]), fontsize = fontsize_title)
@@ -837,7 +845,7 @@ def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
                 ax.tick_params(axis='y', labelsize=fontsize_ticks)
 
                 # putting limits on y since it is a cosine function
-                #ax.set_ylim([ymin,ymax])
+                ax.set_ylim([ymin,ymax])
 
                 for run in interpolated_data[signame]:
                     #This is used to set the run labels. Should work most of the times with the new jintrac version
@@ -851,7 +859,7 @@ def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
                 plt.show()
 
 
-def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=None):
+def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=None, y_limits=None):
     signal_list = interpolated_data["profile_signals"] if "profile_signals" in interpolated_data else keys_list['profiles_1d']
     if isinstance(plot_vars, list):
         signal_list = plot_vars
@@ -872,9 +880,9 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=Non
             ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
             #ax.set_xlabel(r'$\rho$ [-]')
             #ax.set_ylabel(ylabel + ' ' + units)
-            ymin = None
-            ymax = None
             plot_list = {}
+
+            ymin, ymax = None, None
 
             for run in interpolated_data[signame]:
                 #This is used to set the run labels. Should work most of the times with the new jintrac version
@@ -888,10 +896,13 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=Non
 
             ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
 
-            # putting limits on x axis since it is a trigonometry function (0,2)
+            # putting limits on x axis
             ax.set_xlim([0,1])
 
-            # putting limits on y since it is a cosine function
+            # putting limits on y axis
+            if y_limits:
+                ymin, ymax = y_limits[0], y_limits[1]
+
             ax.set_ylim([ymin,ymax])
 
             # function takes frame as an input
@@ -1665,14 +1676,14 @@ def compare_runs(signals, idslist, time_begin, time_end=None, time_basis=None, p
                 del data_dict_no_vol['core_profiles.profiles_1d[].grid.volume']
 
                 plot_interpolated_traces(data_dict_no_vol, labels = labels, y_limits=y_limits)
-                plot_gif_interpolated_profiles(data_dict_no_vol, labels = labels)
+                plot_gif_interpolated_profiles(data_dict_no_vol, labels = labels, y_limits=y_limits)
                 if verbose:
-                    plot_interpolated_profiles(data_dict_no_vol, labels = labels)
+                    plot_interpolated_profiles(data_dict_no_vol, labels = labels, y_limits=y_limits)
             else:
                 plot_interpolated_traces(data_dict, labels = labels, y_limits=y_limits)
-                plot_gif_interpolated_profiles(data_dict, labels = labels)
+                plot_gif_interpolated_profiles(data_dict, labels = labels, y_limits=y_limits)
                 if verbose:
-                    plot_interpolated_profiles(data_dict, labels = labels)
+                    plot_interpolated_profiles(data_dict, labels = labels, y_limits=y_limits)
         else:
             plot_traces(data_dict, single_time_reference=steady_state, labels = labels)
             plot_gif_profiles(data_dict, single_time_reference=steady_state, labels = labels)
