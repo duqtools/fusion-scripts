@@ -372,6 +372,14 @@ fontsize_ticks = 12
 fontsize_title = 17
 legend_location_gifs = 'upper right' #Keeping the legend in the same place for the gifs
 
+def get_axis_padding(ymin, ymax, fraction=0.03):
+    """Return a small y-axis padding so lines do not touch plot boundaries."""
+    span = ymax - ymin
+    if not np.isfinite(span) or span <= 0:
+        scale = max(abs(ymin), abs(ymax), 1.0)
+        return fraction * scale
+    return fraction * span
+
 
 def get_onesig(ids, signame, time_begin, time_end=None, sid=None, tid=None):
     data_dict = {}
@@ -785,7 +793,8 @@ def plot_gif_profiles(plot_data, plot_vars=None, single_time_reference=False, la
             ax.set_xlim([0,1])
 
             # putting limits on y since it is a cosine function
-            ax.set_ylim([ymin,ymax])
+            ypad = get_axis_padding(ymin, ymax)
+            ax.set_ylim([ymin - ypad, ymax + ypad])
 
             # function takes frame as an input
             def AnimationFunction(frame):
@@ -831,9 +840,7 @@ def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None, y
                 ax.set_xlabel(r'$\rho_{tor,norm}$', fontsize = fontsize_labels)
                 ax.set_ylabel(get_label_variable(signame), fontsize = fontsize_labels)
 
-                if y_limits:
-                    ymin=y_limits[0]
-                    ymax=y_limits[1]
+                ymin, ymax = None, None
 
                 title = get_label_variable(signame, show_units=False)
 
@@ -844,15 +851,32 @@ def plot_interpolated_profiles(interpolated_data, plot_vars=None, labels=None, y
                 ax.tick_params(axis='x', labelsize=fontsize_ticks)
                 ax.tick_params(axis='y', labelsize=fontsize_ticks)
 
-                # putting limits on y since it is a cosine function
-                ax.set_ylim([ymin,ymax])
-
                 for run in interpolated_data[signame]:
                     #This is used to set the run labels. Should work most of the times with the new jintrac version
                     if 'run' not in run: first_run = run
 
+                    ydata = interpolated_data[signame][run][tidx]
+                    ymin = np.nanmin([ymin, np.nanmin(ydata)]) if ymin is not None else np.nanmin(ydata)
+                    ymax = np.nanmax([ymax, np.nanmax(ydata)]) if ymax is not None else np.nanmax(ydata)
+
                     #print("Plotting profiles at index %s" % (tidx))
-                    ax.plot(interpolated_data[signame+".x"], interpolated_data[signame][run][tidx], label=create_run_label(interpolated_data[signame], run, first_run=first_run, labels=labels))
+                    ax.plot(interpolated_data[signame+".x"], ydata, label=create_run_label(interpolated_data[signame], run, first_run=first_run, labels=labels))
+
+                apply_padding = True
+                if y_limits is not None:
+                    if y_limits[0] is not None:
+                        ymin = y_limits[0]
+                        apply_padding = False
+                    if y_limits[1] is not None:
+                        ymax = y_limits[1]
+                        apply_padding = False
+
+                if ymin is not None and ymax is not None:
+                    if apply_padding:
+                        ypad = get_axis_padding(ymin, ymax)
+                        ax.set_ylim([ymin - ypad, ymax + ypad])
+                    else:
+                        ax.set_ylim([ymin, ymax])
 
                 ax.legend(loc=legend_location_gifs, fontsize = fontsize_legend)
 
@@ -900,10 +924,20 @@ def plot_gif_interpolated_profiles(interpolated_data, plot_vars=None, labels=Non
             ax.set_xlim([0,1])
 
             # putting limits on y axis
-            if y_limits:
-                ymin, ymax = y_limits[0], y_limits[1]
+            apply_padding = True
+            if y_limits is not None:
+                if y_limits[0] is not None:
+                    ymin = y_limits[0]
+                    apply_padding = False
+                if y_limits[1] is not None:
+                    ymax = y_limits[1]
+                    apply_padding = False
 
-            ax.set_ylim([ymin,ymax])
+            if apply_padding:
+                ypad = get_axis_padding(ymin, ymax)
+                ax.set_ylim([ymin - ypad, ymax + ypad])
+            else:
+                ax.set_ylim([ymin, ymax])
 
             # function takes frame as an input
             def AnimationFunction(frame):
